@@ -29,10 +29,14 @@ defmodule OtpRailsBeam.SocketServer do
     # stale socket from a dead boot
     _ = File.rm(path)
 
+    # Raw mode with manual line reassembly, NOT `packet: :line`: line mode
+    # silently truncates lines longer than the receive buffer (~1400 bytes by
+    # default), and the truncated halves then fail JSON parsing and are
+    # dropped — whereas the Ruby reference (`conn.each_line`) accepts §5
+    # lines of any length. The contract sets no line-length bound.
     {:ok, listen} =
       :gen_tcp.listen(0, [
         :binary,
-        packet: :line,
         active: false,
         ifaddr: {:local, String.to_charlist(path)}
       ])
@@ -71,14 +75,24 @@ defmodule OtpRailsBeam.SocketServer do
     end
   end
 
-  defp serve(conn, ctx) do
+  defp serve(conn, ctx, acc \\ "") do
     case :gen_tcp.recv(conn, 0) do
-      {:ok, line} ->
-        handle_line(line, ctx)
-        serve(conn, ctx)
+      {:ok, data} ->
+        {lines, rest} = split_lines(acc <> data)
+        Enum.each(lines, &handle_line(&1, ctx))
+        serve(conn, ctx, rest)
 
       {:error, _} ->
         :gen_tcp.close(conn)
+    end
+  end
+
+  # NDJSON framing: complete lines plus the trailing partial (kept as the
+  # accumulator until its newline arrives).
+  defp split_lines(buf) do
+    case String.split(buf, "\n") do
+      [partial] -> {[], partial}
+      parts -> {Enum.drop(parts, -1), List.last(parts)}
     end
   end
 
@@ -93,7 +107,11 @@ defmodule OtpRailsBeam.SocketServer do
     end
   end
 
-  defp dispatch(%{"cmd" => cmd} = msg, ctx) when not is_nil(cmd) do
+  # Ruby dispatches on `if msg["cmd"]` — plain truthiness — so a JSON `null`
+  # or `false` cmd falls through to the heartbeat branch there, and must here
+  # too (verified divergence: `not is_nil/1` alone treated `false` as
+  # control and silently ate an otherwise-valid authenticated heartbeat).
+  defp dispatch(%{"cmd" => cmd} = msg, ctx) when cmd not in [nil, false] do
     handle_control(cmd, msg["id"], ctx)
   end
 
