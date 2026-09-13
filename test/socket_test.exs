@@ -133,28 +133,30 @@ defmodule OtpRailsBeam.SocketTest do
     {:ok, conn} =
       :gen_tcp.connect({:local, String.to_charlist(sock)}, 0, [:binary, active: false])
 
-    # The Ruby reference reads lines of any length; a 64 KB meta blob must be
-    # accepted, not silently truncated by the receive buffer and dropped as
-    # malformed JSON (regression: `packet: :line` did exactly that >~1400 B).
+    # §5 accepts lines up to 64 KiB; a ~62 KiB heartbeat must be parsed, not
+    # silently truncated by the receive buffer and dropped as malformed JSON
+    # (regression: `packet: :line` did exactly that beyond ~1400 bytes).
     line =
       Jason.encode!(%{
         id: "hb",
         state: "healthy",
         ts: System.os_time(:second),
         token: OtpRailsBeam.token(sup),
-        meta: %{blob: String.duplicate("x", 64_000)}
+        meta: %{blob: String.duplicate("x", 63_000)}
       }) <> "\n"
+
+    assert byte_size(line) <= 64 * 1024
 
     :ok = :gen_tcp.send(conn, line)
 
     assert wait_until(fn -> OtpRailsBeam.heartbeated?(sup, "hb") end),
-           "an oversized heartbeat line must still be parsed and recorded"
+           "a large-but-legal heartbeat line must still be parsed and recorded"
 
     :gen_tcp.close(conn)
     OtpRailsBeam.stop(sup)
   end
 
-  test "a null or false cmd is dispatched as a heartbeat, like the reference", %{
+  test "lines longer than 64KiB are dropped and the connection resyncs", %{
     tmp_dir: dir,
     agent: agent
   } do
@@ -166,25 +168,88 @@ defmodule OtpRailsBeam.SocketTest do
     {:ok, conn} =
       :gen_tcp.connect({:local, String.to_charlist(sock)}, 0, [:binary, active: false])
 
-    # Ruby dispatches control on `if msg["cmd"]` (truthiness), so JSON null
-    # and false fall through to the heartbeat branch and must here too.
-    for cmd <- [nil, false] do
-      line =
-        Jason.encode!(%{
-          cmd: cmd,
-          id: "hb",
-          state: "healthy",
-          ts: System.os_time(:second),
-          token: OtpRailsBeam.token(sup)
-        }) <> "\n"
+    token = OtpRailsBeam.token(sup)
 
-      :ok = :gen_tcp.send(conn, line)
-    end
+    # Over the §5 cap even with a valid token: malformed, dropped.
+    long =
+      Jason.encode!(%{
+        id: "hb",
+        state: "healthy",
+        ts: System.os_time(:second),
+        token: token,
+        meta: %{blob: String.duplicate("x", 70_000)}
+      }) <> "\n"
+
+    assert byte_size(long) > 64 * 1024
+    :ok = :gen_tcp.send(conn, long)
+    Process.sleep(300)
+
+    refute OtpRailsBeam.heartbeated?(sup, "hb"),
+           "an over-long line must be dropped, not truncated into a heartbeat"
+
+    # The same connection must have resynced at the newline: a legal line
+    # right after the oversized one still lands.
+    ok_line =
+      Jason.encode!(%{id: "hb", state: "healthy", ts: System.os_time(:second), token: token}) <>
+        "\n"
+
+    :ok = :gen_tcp.send(conn, ok_line)
 
     assert wait_until(fn -> OtpRailsBeam.heartbeated?(sup, "hb") end),
-           "a falsy cmd must not swallow an otherwise-valid heartbeat"
+           "the connection must keep working after an over-long line"
 
-    assert spawns(agent) == 1, "a falsy cmd must never act as a control command"
+    :gen_tcp.close(conn)
+    OtpRailsBeam.stop(sup)
+  end
+
+  test "non-string cmd/id/state lines are dropped; ghost ids never enter the table", %{
+    tmp_dir: dir,
+    agent: agent
+  } do
+    sock = Path.join(dir, "s.sock")
+
+    {:ok, sup} = start_sup(sock, ["sleep", "30"])
+    assert wait_until(fn -> spawns(agent) >= 1 end), "child should start"
+
+    {:ok, conn} =
+      :gen_tcp.connect({:local, String.to_charlist(sock)}, 0, [:binary, active: false])
+
+    token = OtpRailsBeam.token(sup)
+    ts = System.os_time(:second)
+
+    # §5 hardening: token, cmd, id, and state must be JSON strings. A cmd
+    # key of any non-string value (null and false included — the old
+    # truthiness fall-through is gone) drops the line; so do non-string
+    # id/state heartbeats. All carry a VALID token.
+    bad_lines = [
+      %{cmd: nil, id: "hb", state: "healthy", ts: ts, token: token},
+      %{cmd: false, id: "hb", state: "healthy", ts: ts, token: token},
+      %{cmd: 123, id: "hb", state: "healthy", ts: ts, token: token},
+      %{id: 123, state: "healthy", ts: ts, token: token},
+      %{id: "hb", state: 7, ts: ts, token: token},
+      %{id: "ghost", state: "healthy", ts: ts, token: token}
+    ]
+
+    for msg <- bad_lines, do: :ok = :gen_tcp.send(conn, Jason.encode!(msg) <> "\n")
+    Process.sleep(300)
+
+    refute OtpRailsBeam.heartbeated?(sup, "hb"),
+           "non-string cmd/id/state lines must be dropped, not recorded"
+
+    refute OtpRailsBeam.heartbeated?(sup, "ghost"),
+           "heartbeats for unknown child ids must be dropped at intake"
+
+    assert spawns(agent) == 1, "no dropped line may act as a control command"
+
+    # A well-formed heartbeat on the same connection still lands.
+    :ok =
+      :gen_tcp.send(
+        conn,
+        Jason.encode!(%{id: "hb", state: "healthy", ts: ts, token: token}) <> "\n"
+      )
+
+    assert wait_until(fn -> OtpRailsBeam.heartbeated?(sup, "hb") end),
+           "a valid line after dropped ones must still be dispatched"
 
     :gen_tcp.close(conn)
     OtpRailsBeam.stop(sup)

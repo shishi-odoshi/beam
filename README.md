@@ -59,8 +59,14 @@ Rules, matching the Ruby reference implementation exactly:
 
 - A line with a missing or wrong `token` is silently dropped. Malformed JSON
   is dropped. No reply either way.
-- A message with a `cmd` key is control; otherwise `id` + `state` make a
-  heartbeat. Unknown commands and unknown ids are ignored.
+- Max line length is 64 KiB (content + newline). Longer lines are malformed:
+  dropped without unbounded buffering, resyncing at the next newline.
+- `token`, `cmd`, `id`, and `state` must be JSON strings; a non-string value
+  in any of them drops the line, same as a bad token.
+- A message with a `cmd` key is control-shaped (a non-string `cmd` drops the
+  line — it never falls through to the heartbeat branch); otherwise string
+  `id` + `state` make a heartbeat. Unknown commands and unknown ids are
+  ignored; heartbeats for unknown child ids are dropped at intake.
 - `state` is one of `"starting" | "healthy" | "degraded" | "dead"`; anything
   else is treated as healthy (reference behavior).
 - Freshness is measured from receipt time on the supervisor's monotonic

@@ -10,14 +10,23 @@ defmodule OtpRailsBeam.SocketServer do
       Control:   {"cmd":"restart","id":"jobs","token":"…"}
 
   Any line with a missing or wrong token is dropped without a reply.
-  Malformed JSON is dropped. Unknown commands and unknown ids are ignored.
-  Messages with a `cmd` key are control; otherwise `id` + `state` make a
-  heartbeat (same dispatch order as the Ruby reference).
+  Malformed JSON is dropped. Lines longer than 64 KiB are malformed too:
+  dropped without unbounded buffering, resyncing at the next newline.
+  `token`, `cmd`, `id`, and `state` must be JSON strings; a non-string value
+  in any of them drops the line, same as a bad token. A message with a `cmd`
+  key is control-shaped (it never falls through to the heartbeat branch);
+  otherwise string `id` + `state` make a heartbeat — same dispatch as the
+  hardened Ruby reference. Unknown commands and unknown ids are ignored.
   """
 
   use GenServer
 
   alias OtpRailsBeam.Root
+
+  # §5: max line length, INCLUDING the newline — longer lines are malformed.
+  # Mirrors the Ruby reference's `conn.gets("\n", MAX_LINE)` exactly: a line
+  # is accepted iff its content + "\n" fits in 64 KiB.
+  @max_line 64 * 1024
 
   def start_link(ctx), do: GenServer.start_link(__MODULE__, ctx)
 
@@ -32,8 +41,8 @@ defmodule OtpRailsBeam.SocketServer do
     # Raw mode with manual line reassembly, NOT `packet: :line`: line mode
     # silently truncates lines longer than the receive buffer (~1400 bytes by
     # default), and the truncated halves then fail JSON parsing and are
-    # dropped — whereas the Ruby reference (`conn.each_line`) accepts §5
-    # lines of any length. The contract sets no line-length bound.
+    # dropped. The §5 contract accepts lines up to 64 KiB and treats longer
+    # ones as malformed (dropped, resync at the next newline).
     {:ok, listen} =
       :gen_tcp.listen(0, [
         :binary,
@@ -75,24 +84,42 @@ defmodule OtpRailsBeam.SocketServer do
     end
   end
 
-  defp serve(conn, ctx, acc \\ "") do
+  defp serve(conn, ctx, acc \\ "", discard? \\ false) do
     case :gen_tcp.recv(conn, 0) do
       {:ok, data} ->
-        {lines, rest} = split_lines(acc <> data)
+        {lines, rest, discard?} = split_lines(acc <> data, discard?)
         Enum.each(lines, &handle_line(&1, ctx))
-        serve(conn, ctx, rest)
+        serve(conn, ctx, rest, discard?)
 
       {:error, _} ->
         :gen_tcp.close(conn)
     end
   end
 
-  # NDJSON framing: complete lines plus the trailing partial (kept as the
-  # accumulator until its newline arrives).
-  defp split_lines(buf) do
-    case String.split(buf, "\n") do
-      [partial] -> {[], partial}
-      parts -> {Enum.drop(parts, -1), List.last(parts)}
+  # NDJSON framing under the §5 line cap: complete lines within @max_line
+  # (content + newline) are accepted; an over-long line is dropped WITHOUT
+  # buffering it — `discard?` rides until its terminating newline, where the
+  # stream resyncs. The trailing partial is kept as the accumulator only
+  # while it can still become an acceptable line, so memory stays bounded
+  # below @max_line regardless of what a client streams.
+  defp split_lines(buf, discard?) do
+    {complete, [partial]} = buf |> String.split("\n") |> Enum.split(-1)
+
+    {lines, discard?} =
+      Enum.reduce(complete, {[], discard?}, fn line, {acc, discarding?} ->
+        cond do
+          # The tail of an over-long line: its newline ends the discard.
+          discarding? -> {acc, false}
+          # Content + "\n" would exceed the cap: malformed, dropped.
+          byte_size(line) >= @max_line -> {acc, false}
+          true -> {[line | acc], false}
+        end
+      end)
+
+    if discard? or byte_size(partial) >= @max_line do
+      {Enum.reverse(lines), "", true}
+    else
+      {Enum.reverse(lines), partial, discard?}
     end
   end
 
@@ -107,17 +134,24 @@ defmodule OtpRailsBeam.SocketServer do
     end
   end
 
-  # Ruby dispatches on `if msg["cmd"]` — plain truthiness — so a JSON `null`
-  # or `false` cmd falls through to the heartbeat branch there, and must here
-  # too (verified divergence: `not is_nil/1` alone treated `false` as
-  # control and silently ate an otherwise-valid authenticated heartbeat).
-  defp dispatch(%{"cmd" => cmd} = msg, ctx) when cmd not in [nil, false] do
+  # §5 hardening, mirroring the Ruby reference: `cmd`, `id`, and `state`
+  # must be JSON strings (`token` too — the equality check against the
+  # binary token enforces that for free). Any message carrying a `cmd` key
+  # is control-shaped: a non-string cmd drops the whole line, it never falls
+  # through to the heartbeat branch. Heartbeats with a non-string id or
+  # state are dropped likewise, and heartbeats for ids that are not children
+  # of this tree are dropped at intake so ghost ids cannot grow the table.
+  defp dispatch(%{"cmd" => cmd} = msg, ctx) when is_binary(cmd) do
     handle_control(cmd, msg["id"], ctx)
   end
 
+  defp dispatch(%{"cmd" => _non_string}, _ctx), do: :ok
+
   defp dispatch(%{"id" => id, "state" => hb_state}, ctx)
-       when not is_nil(id) and not is_nil(hb_state) do
-    :ets.insert(ctx.table, {{:hb, id}, System.monotonic_time(:millisecond), hb_state})
+       when is_binary(id) and is_binary(hb_state) do
+    if id in ctx.ids do
+      :ets.insert(ctx.table, {{:hb, id}, System.monotonic_time(:millisecond), hb_state})
+    end
   end
 
   defp dispatch(_msg, _ctx), do: :ok
