@@ -18,3 +18,22 @@ jobs:
           elixir-version: "1.18"
       - run: mix deps.get
       - run: mix test
+
+  # Cross-implementation contract tests (test/contract/): the BEAM supervisor
+  # against real Ruby children using the published otp-rails gem, and the Ruby
+  # supervisor against an Elixir child. A failure here and a green `test` job
+  # means the two implementations disagree on the §5 wire contract.
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+      - run: gem install otp-rails --version 0.1.1
+      - run: mix deps.get
+      - run: mix test --only contract

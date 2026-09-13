@@ -122,8 +122,30 @@ The tests mirror the Ruby gem's `test/socket_test.rb` with real OS processes
 degraded/dead + restart, bad-token drops, control restart, and OS-level kill
 recovery.
 
+### Contract tests (Ruby ⇄ Elixir interop)
+
+`test/contract/` proves both §5 implementations against the OTHER side's
+processes, in both directions:
+
+- this supervisor supervising RUBY children that heartbeat with the real
+  `OtpRails::Heartbeat` helper from the published gem (plus a Ruby control
+  client sending `{"cmd":"restart"}`);
+- the RUBY supervisor (`otp-rails run`, unmodified) supervising an ELIXIR
+  stdlib heartbeater, asserted through its logger telemetry.
+
+They need `ruby` and the gem on PATH and are excluded from plain `mix test`:
+
+```
+gem install otp-rails
+mix test --only contract      # just the interop suite
+mix test --include contract   # everything
+```
+
 ## CI
 
 GitHub Actions on `ubuntu-latest` via `erlef/setup-beam`
-(`.github/workflows/ci.yml`). macOS CI is skipped because `erlef/setup-beam`
-does not support macOS runners; the suite passes locally on macOS.
+(`.github/workflows/ci.yml`). Two jobs: `test` (pure Elixir) and `contract`
+(adds `ruby/setup-ruby` + the otp-rails gem) — kept separate so a contract
+failure is immediately distinguishable from an Elixir regression. macOS CI is
+skipped because `erlef/setup-beam` does not support macOS runners; both suites
+pass locally on macOS.
