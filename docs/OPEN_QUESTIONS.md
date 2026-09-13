@@ -48,3 +48,64 @@ emitted in-line:
 If §6 ever grows guaranteed measurement fields for these two events, the
 Elixir side will need a hand-rolled supervisor loop instead of `Supervisor` —
 worth knowing before freezing measurements.
+
+---
+
+# Shared queue (Phase 4 step 2) — conservative readings
+
+The solid_queue gem source (1.7.0) was the authority wherever DESIGN/PLAN
+left room; the queue-side notes below record where its behavior differed
+from the plan's wording or forced a v1 scope call.
+
+## 5. "Releases claimed jobs" actually means "fails them with ProcessPrunedError"
+
+The plan describes SQ's supervisor as *releasing* a dead worker's claimed
+executions. Solid Queue 1.x's prune path
+(`Process::Prunable#prune` → `fail_all_claimed_executions_with`) does NOT
+re-dispatch them to ready: it converts them to `solid_queue_failed_executions`
+rows with `SolidQueue::Processes::ProcessPrunedError` and deletes the process
+row, leaving retry/discard to the normal failed-job tooling. (True release —
+back to ready — happens only on *clean* deregistration via the
+`after_destroy` callback, which beam mirrors on graceful shutdown.) The
+orphan interop test asserts the failed-with-ProcessPrunedError behavior,
+because that is the real contract.
+
+## 6. Concurrency-controlled and batched jobs are Ruby-only (v1)
+
+`ClaimedExecution#finished` runs `job.unblock_next_blocked_job` (semaphore
+release + blocked-execution promotion) and batch-progress callbacks. beam
+does not implement either; jobs with `concurrency_key` or `batch_id` should
+not be routed to beam queues. Degradation is graceful, not silent corruption:
+an unreleased semaphore expires after `concurrency_duration` and the Ruby
+dispatcher's concurrency maintenance dispatches the blocked job.
+- **Options:** (a) document the routing rule; (b) implement semaphore
+  release in SQL (subtle: `Semaphore::Proxy` + blocked-execution promotion
+  ordering). **Chosen:** (a) for v1.
+
+## 7. Unregistered job class on a designated queue ⇒ loud failed_execution
+
+If a job lands on a beam queue with no registered handler, beam fails it
+(`OtpRailsBeam.Queue.UnknownJobClassError`) instead of skipping it. Skipping
+would either leave it claimed forever (blocks pruning heuristics) or
+silently starve it — a routing bug should be visible in Mission Control and
+retriable after registering the handler. Filtering the claim query by
+class_name was rejected: it diverges from `ReadyExecution.claim`'s SQL shape,
+and "designated queue" is the routing contract.
+
+## 8. Handler failures are not ActiveJob retries
+
+`retry_on`/`discard_on` execute inside a Ruby worker's ActiveJob layer.
+beam failures go straight to `failed_executions` with `executions`
+unchanged; SQ-side tooling owns retry/discard. Documented in the README and
+the `Handler` moduledoc rather than emulating ActiveJob's retry bookkeeping
+(which would mean re-serializing envelopes and re-scheduling — Ruby-side
+semantics beam must not fork).
+
+## 9. `preserve_finished_jobs` is assumed true
+
+beam always writes `finished_at` (mirroring `Job#finished!` with the
+default `SolidQueue.preserve_finished_jobs = true`). If an app sets it to
+false, Ruby workers destroy finished jobs while beam preserves them — the
+`clear_finished_jobs_after` dispatcher cleanup still reaps beam's rows, so
+the divergence is cosmetic; revisit only if someone actually runs
+`preserve_finished_jobs = false`.

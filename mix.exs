@@ -30,7 +30,11 @@ defmodule OtpRailsBeam.MixProject do
       {:telemetry, "~> 1.2"},
       # JSON codec for the §5 NDJSON wire format. Elixir has no built-in JSON
       # until 1.18/OTP 27; we support 1.15+, so Jason is required.
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      # PostgreSQL driver for the shared Solid Queue job tables (Phase 4 step
+      # 2). Hand-rolled SQL against the Solid Queue schema — no Ecto; see the
+      # README dependency section for the reasoning.
+      {:postgrex, "~> 0.17"}
     ]
   end
 end

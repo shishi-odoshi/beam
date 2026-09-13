@@ -8,3 +8,7 @@ erl_crash.dump
 /tmp/
 .elixir_ls/
 .DS_Store
+
+# test-only Ruby bundle for the shared-queue interop suite
+test/fixtures/solid_queue/.bundle/
+test/fixtures/solid_queue/vendor/

@@ -6,8 +6,9 @@ An Elixir sidecar supervisor for Rails (or arbitrary) OS processes — the
 (each child is a GenServer owning a Port), consumes the DESIGN §5 health
 protocol over a Unix socket, and emits the DESIGN §6 telemetry events.
 
-It depends only on the §5/§6 protocols — never on the Ruby gem's code. This
-is Phase 4 step 1 (ports-based supervision); the shared job queue and Phoenix
+It depends only on the §5/§6 protocols and the DB schema — never on the Ruby
+gem's code. Phase 4 step 1 is the ports-based supervision below; step 2 is
+the [shared Solid Queue worker](#shared-job-queue-otprailsbeamqueue); Phoenix
 channels come later.
 
 ## Usage
@@ -101,6 +102,100 @@ supervisors expose no hook at the instant intensity is exceeded, so
 `:escalate` is emitted by a monitor when the tree exits with reason
 `:shutdown` (a clean `OtpRailsBeam.stop/1` emits only `:stop`).
 
+## Shared job queue (`OtpRailsBeam.Queue`)
+
+Phase 4 step 2: beam as an alternate job runner, consuming the SAME Solid
+Queue Postgres schema the Rails app writes (decision: Solid Queue schema, not
+GoodJob, not a custom table; Postgres-only for v1). beam executes ONLY jobs
+routed to designated queue(s) with registered Elixir handlers — Ruby workers
+keep everything else, and both kinds of worker plus Solid Queue's own
+supervisor run concurrently against the same tables.
+
+```elixir
+defmodule MyApp.HardJob do
+  @behaviour OtpRailsBeam.Queue.Handler
+
+  @impl true
+  def perform([user_id, options]) do
+    # plain JSON-typed args from the ActiveJob envelope
+    :ok
+  end
+end
+
+{:ok, queue} =
+  OtpRailsBeam.Queue.start_link(
+    db: [hostname: "localhost", database: "app_production", username: "app", password: "..."],
+    queues: ["elixir"],                        # exact names only, no wildcards
+    handlers: %{"HardJob" => MyApp.HardJob}    # ActiveJob class_name => module
+  )
+```
+
+Rails routes work to it the normal ActiveJob way — `queue_as :elixir` (or
+`SomeJob.set(queue: "elixir")`); nothing on the Ruby side knows or cares that
+the worker is a BEAM process.
+
+### Mirrored Solid Queue semantics
+
+The solid_queue gem (1.7.x) is the schema and semantics authority; the SQL in
+`OtpRailsBeam.Queue.Store` mirrors the Ruby worker exactly:
+
+- **Claiming** (`ReadyExecution.claim`): per queue in configured order, minus
+  paused queues (`solid_queue_pauses`), `SELECT … ORDER BY priority ASC,
+  job_id ASC LIMIT n FOR UPDATE SKIP LOCKED`, then the
+  `solid_queue_claimed_executions` insert and ready-row delete in the same
+  transaction — safe against concurrent Ruby workers by construction.
+- **Success** (`ClaimedExecution#finished`): lock the claimed row, set
+  `solid_queue_jobs.finished_at`, delete the claimed row; skip silently if
+  the row is already gone (finalized or pruned by someone else).
+- **Failure** (`ClaimedExecution#failed_with`): same finalize dance writing a
+  `solid_queue_failed_executions` row whose `error` JSON
+  (`exception_class`/`message`/`backtrace`) loads cleanly into
+  `SolidQueue::FailedExecution` for Mission Control retry/discard.
+- **Process registry**: registers in `solid_queue_processes` (kind
+  `"Worker"`, `worker-<hex>` name, OS pid, hostname, metadata) and heartbeats
+  `last_heartbeat_at` on Solid Queue's cadence (60s default), so a live beam
+  worker never looks prunable — and a SIGKILLed one is cleaned up by Solid
+  Queue's supervisor exactly like a dead Ruby worker: after
+  `process_alive_threshold` its claimed executions are failed with
+  `ProcessPrunedError` and its process row deleted. Clean shutdown
+  deregisters and releases still-claimed executions back to ready
+  (`after_destroy :release_all_claimed_executions`).
+
+### Retries, and other v1 boundaries
+
+- **Elixir handler failures are NOT ActiveJob retries.** `retry_on` /
+  `discard_on` run inside a Ruby worker; a failing handler sends the job
+  straight to `failed_executions`, where Solid Queue's normal tooling
+  retries or discards it. A job class with no registered handler on a
+  designated queue fails the same loud way (`UnknownJobClassError`) rather
+  than dangling or being silently skipped.
+- **Arguments are plain JSON types.** The ActiveJob envelope
+  (`job_class`/`job_id`/`queue_name`/`arguments`) is decoded; ActiveJob's
+  hash markers (`_aj_symbol_keys`, `_aj_hash_with_indifferent_access`,
+  `_aj_ruby2_keywords`) are stripped. GlobalID references and
+  custom-serialized objects fail with a `DeserializationError`-shaped row —
+  route jobs carrying them to Ruby queues (v1).
+- **Concurrency controls / batches**: jobs with `concurrency_key` should stay
+  on Ruby queues — beam doesn't release the semaphore on completion (the
+  Ruby dispatcher's maintenance recovers expired ones); batch progress
+  callbacks don't fire for beam-finished jobs. Finished jobs are always
+  preserved (`preserve_finished_jobs`).
+- Scheduled/recurring dispatch stays with Solid Queue's Ruby dispatcher;
+  beam only works `solid_queue_ready_executions`, so `wait:`/recurring jobs
+  flow through the dispatcher and get picked up once ready.
+- v1 executes jobs sequentially per queue process (`:batch_size` bounds the
+  claim, like the Ruby pool's capacity).
+
+### Queue telemetry
+
+Beam-local events (the §6 supervision contract is frozen and untouched):
+
+```
+[:otp_rails_beam, :job, :start]     %{system_time}    %{job_id, active_job_id, class_name, queue_name}
+[:otp_rails_beam, :job, :finish]    %{duration_ms}    same metadata
+[:otp_rails_beam, :job, :failure]   %{duration_ms}    metadata + %{error: %{exception_class, message, backtrace}}
+```
+
 ## Dependencies
 
 Kept to the minimum the contract itself demands:
@@ -110,6 +205,15 @@ Kept to the minimum the contract itself demands:
   library, the BEAM ecosystem standard.
 - **`:jason`** — JSON codec for the §5 NDJSON wire format. Elixir has no
   built-in JSON until 1.18/OTP 27 and this project supports Elixir 1.15+.
+
+- **`:postgrex`** — the PostgreSQL driver for the shared Solid Queue tables
+  (Phase 4 step 2 is Postgres-only by decision). The SQL is hand-rolled, not
+  Ecto: the queue surface is eight fixed statements against a schema owned
+  by the Rails side, where the exact locking clauses (`FOR UPDATE SKIP
+  LOCKED`, transaction boundaries) ARE the contract — a query builder and
+  schema/migration layer would add three dependencies and a second source of
+  truth for tables beam must never define, while making the mirrored
+  statements harder to compare against the Ruby originals.
 
 Everything else is stdlib/OTP: `:gen_tcp` for the Unix socket, `Port` for
 process ownership, `Supervisor` for strategies and restart intensity,
@@ -147,11 +251,45 @@ mix test --only contract      # just the interop suite
 mix test --include contract   # everything
 ```
 
+### Shared-queue interop tests (Solid Queue ⇄ beam)
+
+`test/queue/` (tagged `:queue`, excluded from plain `mix test`) proves the
+shared queue against the REAL solid_queue gem — no mocks. The Ruby side is a
+test-only bundle under `test/fixtures/solid_queue/` (activerecord +
+solid_queue ~> 1.7 + pg) that loads the gem's own schema, enqueues
+ActiveJob-enveloped jobs, runs a genuine `SolidQueue::Worker`, and runs the
+supervisor's `SolidQueue::Process.prune` maintenance call. Covered:
+
+- beam claims/executes ONLY elixir-queue jobs (side effects + `finished_at`
+  + cleaned ready/claimed rows); default-queue jobs untouched;
+- 50-job bursts on each side with beam and a Ruby worker polling
+  concurrently: zero cross-claims, zero double-executions;
+- a failing Elixir handler produces a `failed_executions` row that
+  `SolidQueue::FailedExecution` loads on the Ruby side;
+- `kill -9` mid-claim: once the heartbeat goes stale, Solid Queue's own
+  pruning fails the orphaned claims with `ProcessPrunedError` and removes
+  the dead process row.
+
+They need docker Postgres and the fixture bundle:
+
+```
+docker run -d --name otp-rails-beam-queue-pg \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=otp_rails_beam_queue_test \
+  -p 55433:5432 postgres:16
+(cd test/fixtures/solid_queue && bundle install)
+mix test --only queue
+```
+
+Connection defaults match that container; override with `SOLID_QUEUE_PG_HOST`
+/ `_PORT` / `_USER` / `_PASSWORD` / `_DATABASE`.
+
 ## CI
 
 GitHub Actions on `ubuntu-latest` via `erlef/setup-beam`
-(`.github/workflows/ci.yml`). Two jobs: `test` (pure Elixir) and `contract`
-(adds `ruby/setup-ruby` + the otp-rails gem) — kept separate so a contract
-failure is immediately distinguishable from an Elixir regression. macOS CI is
+(`.github/workflows/ci.yml`). Three jobs: `test` (pure Elixir), `contract`
+(adds `ruby/setup-ruby` + the otp-rails gem), and `queue` (adds a
+`postgres:16` service + the solid_queue fixture bundle) — kept separate so a
+contract or queue failure is immediately distinguishable from an Elixir
+regression. macOS CI is
 skipped because `erlef/setup-beam` does not support macOS runners; both suites
 pass locally on macOS.
