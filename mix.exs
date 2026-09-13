@@ -34,7 +34,14 @@ defmodule OtpRailsBeam.MixProject do
       # PostgreSQL driver for the shared Solid Queue job tables (Phase 4 step
       # 2). Hand-rolled SQL against the Solid Queue schema — no Ecto; see the
       # README dependency section for the reasoning.
-      {:postgrex, "~> 0.17"}
+      {:postgrex, "~> 0.17"},
+      # Minimal websocket stack for the ActionCable-compatible cable endpoint
+      # (Phase 4 step 3) — the decision log explicitly allows serving the
+      # protocol without full Phoenix. Bandit is a pure-Elixir HTTP server;
+      # websock_adapter upgrades a Plug request to a WebSock handler. See the
+      # README dependency section for the reasoning.
+      {:bandit, "~> 1.5"},
+      {:websock_adapter, "~> 0.5"}
     ]
   end
 end

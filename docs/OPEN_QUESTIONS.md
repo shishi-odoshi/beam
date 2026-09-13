@@ -109,3 +109,56 @@ false, Ruby workers destroy finished jobs while beam preserves them — the
 `clear_finished_jobs_after` dispatcher cleanup still reaps beam's rows, so
 the divergence is cosmetic; revisit only if someone actually runs
 `preserve_finished_jobs = false`.
+
+## 10. Unknown-channel subscribes: explicit reject instead of Ruby's silence
+
+`ActionCable::Connection::Subscriptions#add` handles an identifier whose
+`channel` class doesn't exist by logging "Subscription class not found" and
+sending NOTHING — the JS client waits forever (its connection monitor only
+guards the connection, not individual subscriptions). beam sends an explicit
+`reject_subscription`, the same frame a rejecting channel produces, which
+`@rails/actioncable` surfaces via the `rejected` callback.
+
+- **Options:** (a) mirror the silence byte-for-byte; (b) reject explicitly.
+- **Chosen:** (b) — a client-visible superset that no conforming client can
+  distinguish from a channel whose `subscribed` called `reject`, and the
+  deliverable's auth boundary ("anything else rejected") reads as (b).
+- Documented in the README and `OtpRailsBeam.Cable.Socket` moduledoc.
+
+## 11. Allowlisted channels need beam-side stream mapping
+
+In Rails the channel's Ruby `subscribed` method decides which broadcastings
+to stream; beam runs no Ruby channel code, so an allowlist entry alone can't
+know its streams. `:allowed_channels` therefore maps a channel name to a
+`params -> stream | [streams] | nil` function — an explicit Elixir stand-in
+for that channel's `subscribed`, rather than an invented wire convention
+(e.g. trusting a client-supplied `stream_name` param, which would let anyone
+subscribe to anything). Default is empty; `Turbo::StreamsChannel` remains
+the only zero-config path.
+
+## 12. Verifier key derivation depends on the app's `load_defaults`
+
+`Rails.application.key_generator` hashes with
+`ActiveSupport::KeyGenerator.hash_digest_class`, which the activesupport
+railtie sets to SHA256 for `config.load_defaults 7.0`+ and leaves at SHA1
+otherwise. All Rails 8 apps are SHA256 (beam's default); pre-7.0-defaults
+apps must pass `key_digest: :sha1`. Found the hard way: a fixture app that
+skips the railtie initializer signs with SHA1-derived keys and nothing
+verifies — the fixture now applies the initializer by hand like a real app
+boot would.
+
+## 13. Channel actions (`"command":"message"`) are ignored (v1)
+
+`perform_action` dispatches to Ruby channel methods; `Turbo::StreamsChannel`
+defines none, and beam runs no channel code. beam logs and ignores the
+command (Ruby would raise inside the worker and log — same client-visible
+outcome: nothing). Revisit only if allowlisted channels grow action needs.
+
+## 14. No server-initiated `disconnect` frames (v1)
+
+Action Cable sends `{"type":"disconnect","reason":"server_restart",
+"reconnect":true}` when shutting down, and `reason: "unauthorized"` /
+"invalid_request" on failed connection auth. beam v1 has no connection-level
+auth (nothing to refuse) and on shutdown simply closes sockets — the JS
+client's monitor reconnects either way; the frame only tunes its backoff.
+Add it if beam ever gains rolling-restart choreography.

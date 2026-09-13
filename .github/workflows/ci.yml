@@ -72,3 +72,39 @@ jobs:
           working-directory: test/fixtures/solid_queue
       - run: mix deps.get
       - run: mix test --only queue
+
+  # Cable interop tests (test/cable/, tagged :cable): OtpRailsBeam.Cable
+  # serving the ActionCable v1 JSON protocol against the REAL solid_cable +
+  # turbo-rails stack — Ruby signs the stream names and broadcasts through
+  # Solid Cable's pubsub; an Elixir websocket client asserts the frames.
+  # Separate job so a cable failure is immediately distinguishable from a
+  # queue, contract, or Elixir regression.
+  cable:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: otp_rails_beam_cable_test
+        ports:
+          - "55433:5432" # matches the suite's local-docker default port
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+          working-directory: test/fixtures/solid_cable
+      - run: mix deps.get
+      - run: mix test --only cable

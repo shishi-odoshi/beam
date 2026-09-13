@@ -1,0 +1,8 @@
+# The solid_cable adapter config the fixture app runs with — the gem's own
+# installer template values (lib/generators/solid_cable/install/templates/
+# config/cable.yml, production section), minus connects_to: the interop
+# suite keeps cable tables in the one test database.
+test:
+  adapter: solid_cable
+  polling_interval: 0.1.seconds
+  message_retention: 1.day

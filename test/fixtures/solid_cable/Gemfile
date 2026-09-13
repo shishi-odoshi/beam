@@ -1,0 +1,16 @@
+# Test-only Gemfile: the REAL Solid Cable + Action Cable + turbo-rails stack
+# the cable interop suite runs the Ruby side with (test/cable/). Nothing in
+# lib/ depends on any of this.
+source "https://rubygems.org"
+
+gem "rails", "~> 8.0"
+gem "activerecord", "~> 8.0"
+gem "activejob", "~> 8.0" # SolidCable::TrimJob (autotrim) is an ActiveJob
+gem "actioncable", "~> 8.0"
+gem "solid_cable", "~> 3.0"
+gem "turbo-rails", "~> 2.0"
+gem "pg"
+
+# json 3.x currently breaks ActiveRecord's JSON coder (2-arg JSON.parse);
+# pin the 2.x line the Rails releases were tested against.
+gem "json", "~> 2.7"
