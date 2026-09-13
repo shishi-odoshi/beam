@@ -108,3 +108,7 @@ jobs:
           working-directory: test/fixtures/solid_cable
       - run: mix deps.get
       - run: mix test --only cable
+        env:
+          # The DB-outage test stops/starts the real Postgres under the
+          # suite; in CI that's this job's service container.
+          CABLE_PG_CONTAINER: ${{ job.services.postgres.id }}
