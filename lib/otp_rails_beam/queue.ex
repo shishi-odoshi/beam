@@ -25,7 +25,13 @@ defmodule OtpRailsBeam.Queue do
     database (Postgres only, v1).
   * `:queues` — exact queue names to work, default `["elixir"]`. Wildcards
     are rejected on purpose: this worker only ever executes jobs explicitly
-    routed to it.
+    routed to it. **The mirror image is on you**: every RUBY worker's
+    `config/queue.yml` must exclude these queues — a stock `queues: "*"`
+    Ruby worker polls everything and will silently race beam for
+    designated-queue jobs, executing them as plain Ruby jobs (whoever polls
+    first wins; no error anywhere). Solid Queue has no exclusion syntax, so
+    enumerate the Ruby side explicitly (e.g. `queues: [default, mailers]`).
+    See the README warning and beam#10.
   * `:handlers` (required) — map of ActiveJob `class_name` to a module
     implementing `OtpRailsBeam.Queue.Handler`.
   * `:batch_size` — max executions claimed per poll (default 3, the analog

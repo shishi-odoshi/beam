@@ -102,4 +102,54 @@ defmodule OtpRailsBeam.CableHelpers do
     # Ephemeral-ish range, spaced out so parallel tests can't collide.
     39_000 + System.unique_integer([:positive, :monotonic])
   end
+
+  @doc "Poll `fun` every 50ms until truthy or `timeout_ms` elapses (then flunk)."
+  def wait_until(timeout_ms \\ 15_000, fun) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait(deadline, fun)
+  end
+
+  defp do_wait(deadline, fun) do
+    cond do
+      value = fun.() ->
+        value
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("condition not met within timeout")
+
+      true ->
+        Process.sleep(50)
+        do_wait(deadline, fun)
+    end
+  end
+
+  @doc """
+  The docker container running the cable Postgres — the README recipe's
+  name locally, the GitHub Actions service container id in CI (the cable
+  job exports it as CABLE_PG_CONTAINER). Used by the DB-outage test to
+  stop/start a REAL Postgres under the suite.
+  """
+  def pg_container do
+    System.get_env("CABLE_PG_CONTAINER", "otp-rails-beam-queue-pg")
+  end
+
+  def stop_db! do
+    {_out, 0} = System.cmd("docker", ["stop", "-t", "1", pg_container()], stderr_to_stdout: true)
+    :ok
+  end
+
+  def start_db! do
+    {_out, 0} = System.cmd("docker", ["start", pg_container()], stderr_to_stdout: true)
+
+    wait_until(30_000, fn ->
+      match?(
+        {_out, 0},
+        System.cmd("docker", ["exec", pg_container(), "pg_isready", "-U", pg_env().user],
+          stderr_to_stdout: true
+        )
+      )
+    end)
+
+    :ok
+  end
 end

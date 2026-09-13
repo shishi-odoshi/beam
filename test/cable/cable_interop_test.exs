@@ -36,7 +36,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
     ]
 
     start_supervised!({OtpRailsBeam.Cable, Keyword.merge(defaults, opts)}, id: name)
-    port
+    {port, name}
   end
 
   # A broadcast frame is {"identifier":..., "message":...} with no "type" —
@@ -63,7 +63,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
   end
 
   test "welcome frame and actioncable-v1-json subprotocol negotiation" do
-    port = start_cable!()
+    {port, _name} = start_cable!()
 
     # @rails/actioncable offers both protocols; the first supported one wins.
     client = Client.connect!(port)
@@ -82,7 +82,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
   end
 
   test "ping frames on the 3s Action Cable cadence carrying unix time" do
-    port = start_cable!()
+    {port, _name} = start_cable!()
     client = connect_and_welcome!(port)
 
     before = System.os_time(:second)
@@ -96,7 +96,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
   end
 
   test "Ruby-signed Turbo subscription confirms; Ruby broadcast arrives verbatim" do
-    port = start_cable!()
+    {port, _name} = start_cable!()
     signed = sign!("board:42")
     identifier = turbo_identifier(signed)
 
@@ -126,7 +126,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
   end
 
   test "tampered signature is rejected (and telemetry says why)" do
-    port = start_cable!()
+    {port, _name} = start_cable!()
     test_pid = self()
 
     :telemetry.attach(
@@ -158,7 +158,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
   end
 
   test "unknown channels are rejected unless allowlisted (default allowlist is empty)" do
-    port =
+    {port, _name} =
       start_cable!(
         allowed_channels: %{
           "FixtureChannel" => fn params -> "fixture:#{params["room"]}" end
@@ -189,7 +189,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
   end
 
   test "broadcasts to other streams are not delivered; unsubscribe stops delivery" do
-    port = start_cable!()
+    {port, _name} = start_cable!()
     identifier = turbo_identifier(sign!("board:mine"))
     client = port |> connect_and_welcome!() |> subscribe!(identifier)
 
@@ -213,7 +213,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
   end
 
   test "reconnect does not replay messages broadcast before the new subscription" do
-    port = start_cable!()
+    {port, _name} = start_cable!()
     identifier = turbo_identifier(sign!("board:replay"))
 
     client1 = port |> connect_and_welcome!() |> subscribe!(identifier)
@@ -244,7 +244,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
   end
 
   test "two concurrent subscribers on one stream each receive exactly one copy" do
-    port = start_cable!()
+    {port, _name} = start_cable!()
     identifier = turbo_identifier(sign!("board:shared"))
 
     client1 = port |> connect_and_welcome!() |> subscribe!(identifier)
@@ -269,7 +269,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
   end
 
   test "duplicate subscribe is ignored and does not double-deliver" do
-    port = start_cable!()
+    {port, _name} = start_cable!()
     identifier = turbo_identifier(sign!("board:dup"))
     client = port |> connect_and_welcome!() |> subscribe!(identifier)
 
@@ -285,6 +285,105 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
 
     assert frame["message"] == "once"
     client = Client.refute_json!(client, 1_000, fn m -> broadcast_frame?(m) end)
+    Client.close(client)
+  end
+
+  test "listener restart: live socket stays connected, no replay, new broadcasts delivered" do
+    # beam#8: the tree is one_for_one and sockets re-register with a fresh
+    # listener, so a listener crash costs a connected client nothing but
+    # the broadcasts of the gap.
+    {port, name} = start_cable!()
+    listener = :"#{name}.Listener"
+    identifier = turbo_identifier(sign!("board:restart"))
+
+    client = port |> connect_and_welcome!() |> subscribe!(identifier)
+    broadcast!("board:restart", "m1")
+
+    {frame, client} = Client.recv_json_until!(client, 15_000, fn m -> broadcast_frame?(m) end)
+    assert frame["message"] == "m1"
+
+    old_pid = Process.whereis(listener)
+    Process.exit(old_pid, :kill)
+
+    # A fresh listener registers under the same name...
+    new_pid =
+      wait_until(fn ->
+        case Process.whereis(listener) do
+          nil -> false
+          ^old_pid -> false
+          pid -> pid
+        end
+      end)
+
+    # ...and the socket re-registers its subscription with it (the socket's
+    # map is the durable copy; the listener's was soft state).
+    wait_until(fn -> map_size(:sys.get_state(new_pid).streams) == 1 end)
+
+    # The socket was never closed and nothing replays — not m1, not any
+    # frame (refute_json! flunks on a close frame too).
+    client = Client.refute_json!(client, 1_000, fn m -> broadcast_frame?(m) end)
+
+    # New broadcasts flow through the restarted listener to the SAME socket.
+    broadcast!("board:restart", "m2")
+    {frame2, client} = Client.recv_json_until!(client, 15_000, fn m -> broadcast_frame?(m) end)
+    assert frame2 == %{"identifier" => identifier, "message" => "m2"}
+    Client.close(client)
+  end
+
+  test "DB outage: listener rides it out without restarting; socket survives and resumes" do
+    # beam#9: connection errors back off (polling_interval * 10) instead of
+    # crashing, so a sustained outage costs ZERO supervisor restarts and
+    # ends with polling resuming where the cursor left off. Real outage:
+    # docker stop/start on the suite's Postgres.
+    {port, name} = start_cable!()
+    listener = :"#{name}.Listener"
+    identifier = turbo_identifier(sign!("board:outage"))
+    # Signed BEFORE the outage: the late subscriber below must target a
+    # stream with no existing baseline, or the listener can (correctly)
+    # accept it without touching the DB.
+    fresh_identifier = turbo_identifier(sign!("board:outage-fresh"))
+
+    client = port |> connect_and_welcome!() |> subscribe!(identifier)
+    broadcast!("board:outage", "m1")
+
+    {frame, client} = Client.recv_json_until!(client, 15_000, fn m -> broadcast_frame?(m) end)
+    assert frame["message"] == "m1"
+
+    listener_pid = Process.whereis(listener)
+
+    # Whatever happens below, leave the database running for the rest of
+    # the suite.
+    on_exit(fn -> start_db!() end)
+    stop_db!()
+
+    # Several failed poll cycles pass (50ms interval -> 500ms backoff)...
+    Process.sleep(2_500)
+
+    # ...and the listener NEVER crashed (pre-fix: ~9 restarts in 35s, whole
+    # supervisor dead at ~60s), while the existing socket stayed connected —
+    # pings keep flowing right through the outage.
+    assert Process.whereis(listener) == listener_pid
+    {ping, client} = Client.recv_json_until!(client, 4_500, fn m -> m["type"] == "ping" end)
+    assert is_integer(ping["message"])
+
+    # A NEW subscription to a fresh stream can't take its replay-guard
+    # baseline while the DB is down: that socket is closed with 1013 (Try
+    # Again Later) so the client's monitor retries; it is never falsely
+    # confirmed or rejected. (Subscribing to a stream that already HAS a
+    # baseline still succeeds without the DB — SubscriberMap semantics.)
+    late_client = connect_and_welcome!(port)
+    Client.send_json(late_client, %{"command" => "subscribe", "identifier" => fresh_identifier})
+    assert Client.recv_close!(late_client, 15_000) == 1013
+
+    start_db!()
+
+    # Polling resumes on the same listener process; new broadcasts arrive
+    # on the surviving socket, and m1 does not replay.
+    broadcast!("board:outage", "m2")
+
+    {frame2, client} = Client.recv_json_until!(client, 20_000, fn m -> broadcast_frame?(m) end)
+    assert frame2 == %{"identifier" => identifier, "message" => "m2"}
+    assert Process.whereis(listener) == listener_pid
     Client.close(client)
   end
 end

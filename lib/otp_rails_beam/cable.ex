@@ -68,6 +68,17 @@ defmodule OtpRailsBeam.Cable do
   validly signed stream name for that stream. Native Phoenix channel
   semantics are explicitly deferred (decision log 2026-09-13).
 
+  ## Resilience
+
+  The tree is `:one_for_one`: a listener crash never restarts the endpoint,
+  so live WebSockets stay connected through it and re-register with the
+  fresh listener (beam#8). DB connection errors never crash the listener at
+  all — polls back off 10x the polling interval and retry until Postgres
+  returns, riding out an outage of any length without spending supervisor
+  restarts (beam#9). During an outage, connected clients keep their sockets
+  (and pings); NEW subscriptions are closed with 1013 so their client
+  monitor retries later.
+
   ## Telemetry
 
   Beam-local events (the §6 supervision contract is frozen and untouched):
@@ -137,11 +148,22 @@ defmodule OtpRailsBeam.Cable do
         id: :endpoint
       )
 
-    # rest_for_one: sockets outlive a listener restart (they just miss
-    # broadcasts for the gap), but a lost DB pool restarts the listener so
-    # its cursor re-baselines instead of replaying.
+    # one_for_one (beam#8): a crashed child takes down ONLY itself.
+    # - Listener crash: sockets stay connected (the endpoint is untouched)
+    #   and re-register with the fresh listener — see Cable.Socket — so a
+    #   listener restart costs live clients nothing but the broadcasts of
+    #   the gap.
+    # - DB pool crash: Postgrex reconnects internally; the listener rides
+    #   the window out with its own backoff (beam#9) and resumes from its
+    #   cursor — ids are monotonic in the one table, so no re-baseline is
+    #   needed.
+    # - Endpoint crash: drops its sockets by definition; listener and pool
+    #   keep running for the reconnecting clients.
+    # (Previously rest_for_one ordered [db, listener, endpoint], which
+    # restarted the endpoint — closing EVERY live WebSocket — on any
+    # listener restart.)
     Supervisor.init([db_spec, listener_spec, endpoint_spec],
-      strategy: :rest_for_one,
+      strategy: :one_for_one,
       max_restarts: Keyword.get(opts, :max_restarts, 10),
       max_seconds: Keyword.get(opts, :max_seconds, 60)
     )

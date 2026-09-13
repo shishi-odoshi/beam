@@ -212,9 +212,28 @@ defmodule OtpRailsBeam.CableWsClient do
           refute fun.(message), "unexpected frame arrived: #{inspect(message)}"
           do_refute_json(client, deadline, fun)
 
+        {{:close, code}, _client} ->
+          flunk("connection unexpectedly closed (code #{inspect(code)}) during refute window")
+
         {_other, client} ->
           do_refute_json(client, deadline, fun)
       end
+    end
+  end
+
+  @doc "Receive frames until a close frame arrives; returns its status code."
+  def recv_close!(client, timeout \\ 5_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_recv_close(client, deadline)
+  end
+
+  defp do_recv_close(client, deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    case recv_frame(client, remaining) do
+      {{:close, code}, _client} -> code
+      {:timeout, _client} -> flunk("expected a close frame, got timeout")
+      {_other, client} -> do_recv_close(client, deadline)
     end
   end
 

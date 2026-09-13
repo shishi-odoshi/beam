@@ -132,7 +132,29 @@ end
 
 Rails routes work to it the normal ActiveJob way — `queue_as :elixir` (or
 `SomeJob.set(queue: "elixir")`); nothing on the Ruby side knows or cares that
-the worker is a BEAM process.
+the worker is a BEAM process — with ONE configuration exception, below.
+
+> **⚠️ Designated queues MUST be excluded from every Ruby worker.**
+> A stock Rails 8 `config/queue.yml` ships `workers: - queues: "*"`, and a
+> `"*"` Solid Queue worker polls EVERY queue — including beam's designated
+> ones. Since the ActiveJob class also exists in Ruby (it must, to be
+> enqueued), that Ruby worker will happily claim and execute
+> designated-queue jobs itself: whoever polls first wins each job, so
+> routing degrades into a silent race and some (or all, if beam is briefly
+> down) jobs never reach their Elixir handler. No error is raised anywhere.
+> Solid Queue has no exclusion syntax, so enumerate the Ruby workers'
+> queues explicitly whenever beam owns a queue:
+>
+> ```yaml
+> # config/queue.yml — every Ruby worker lists its queues; none may be "*"
+> workers:
+>   - queues: [default, mailers]   # NOT "*" — beam owns "elixir"
+> ```
+>
+> beam's own `:queues` option rejects wildcards for the same reason; the
+> wildcard on the Ruby side is the mirror image it can't check for you.
+> Found in the full-stack integration harness — see
+> [beam#10](https://github.com/shishi-odoshi/beam/issues/10).
 
 ### Mirrored Solid Queue semantics
 
@@ -288,6 +310,21 @@ solid_cable.rb`):
   (Solid Cable's autotrim `TrimJob` deletes rows older than
   `message_retention`), and trimmed history is naturally invisible to the
   `id > cursor` predicate.
+
+### Failure behavior
+
+The cable tree is `one_for_one` (beam#8): a listener restart never touches
+the Bandit endpoint, so live WebSockets stay connected through it — each
+socket keeps the durable copy of its subscriptions, re-registers with the
+fresh listener (new `MAX(id)` baselines, so nothing replays), and misses
+only the broadcasts of the gap. DB connection errors never crash the
+listener at all (beam#9): polls back off to 10x the polling interval
+(default 100ms → 1s, the same rule as the queue worker's claim loop) and
+retry until Postgres returns, so an outage of any length costs zero
+supervisor restarts and connected clients keep their sockets and pings the
+whole way through. A NEW subscription during an outage has no way to take
+its replay-guard baseline, so that socket is closed with 1013 (Try Again
+Later) and the client's connection monitor retries with backoff.
 
 ### Cable telemetry
 

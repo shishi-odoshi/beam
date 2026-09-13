@@ -39,6 +39,21 @@ defmodule OtpRailsBeam.Cable.Socket do
   sends an explicit `reject_subscription` (the frame a rejecting channel
   would produce, which @rails/actioncable handles via the `rejected`
   callback) so clients aren't left hanging — documented in the README.
+
+  ## Surviving listener restarts (beam#8)
+
+  The socket's `subscriptions` map is the durable copy of what this client
+  subscribed to; the listener's subscriber map is soft state. Each socket
+  monitors the listener, and when it goes down the socket stays connected
+  (pings keep flowing), re-registers all of its subscriptions with the
+  restarted listener, and misses only the broadcasts of the gap. The fresh
+  registrations take new baselines at the current `MAX(id)`, so nothing is
+  replayed. If a subscription cannot be registered at all — the listener
+  is down mid-subscribe or the DB is unreachable, so no replay-guard
+  baseline exists (beam#9) — the socket closes with 1013 (Try Again
+  Later): confirming would lie and rejecting would read as an auth
+  failure, while a close makes @rails/actioncable's monitor reconnect
+  with backoff.
   """
 
   @behaviour WebSock
@@ -46,6 +61,9 @@ defmodule OtpRailsBeam.Cable.Socket do
   require Logger
 
   @ping_interval_ms 3_000
+
+  # How often a socket retries attaching to a restarted listener (beam#8).
+  @reattach_interval_ms 100
 
   @impl true
   def init(opts) do
@@ -56,9 +74,19 @@ defmodule OtpRailsBeam.Cable.Socket do
       ping_interval_ms: Keyword.get(opts, :ping_interval_ms, @ping_interval_ms),
       # identifier => [stream] — `return if subscriptions.key?(id_key)`
       # duplicate-subscribe suppression needs this map even for streams the
-      # listener tracks.
-      subscriptions: %{}
+      # listener tracks. It is also the socket's authority for re-registering
+      # with a restarted listener (beam#8): the listener's subscriber map is
+      # soft state, this map is the durable copy.
+      subscriptions: %{},
+      # Monitor on the current listener process; a DOWN triggers the
+      # re-subscribe loop below.
+      listener_ref: nil
     }
+
+    # Monitoring by registered name: if the listener happens to be down
+    # right now we get an immediate :noproc DOWN, which flows into the same
+    # retry loop as a mid-connection listener crash.
+    state = %{state | listener_ref: Process.monitor(state.listener)}
 
     :telemetry.execute(
       [:otp_rails_beam, :cable, :connect],
@@ -94,19 +122,32 @@ defmodule OtpRailsBeam.Cable.Socket do
     else
       case authorize(identifier, state) do
         {:ok, streams} ->
-          Enum.each(
-            streams,
-            &OtpRailsBeam.Cable.Listener.subscribe(state.listener, self(), identifier, &1)
-          )
+          case register_streams(state, identifier, streams) do
+            :ok ->
+              :telemetry.execute(
+                [:otp_rails_beam, :cable, :subscribe],
+                %{system_time: System.system_time()},
+                %{identifier: identifier, streams: streams}
+              )
 
-          :telemetry.execute(
-            [:otp_rails_beam, :cable, :subscribe],
-            %{system_time: System.system_time()},
-            %{identifier: identifier, streams: streams}
-          )
+              {:push, frame(%{"identifier" => identifier, "type" => "confirm_subscription"}),
+               put_in(state.subscriptions[identifier], streams)}
 
-          {:push, frame(%{"identifier" => identifier, "type" => "confirm_subscription"}),
-           put_in(state.subscriptions[identifier], streams)}
+            # The listener can't establish the subscription's replay-guard
+            # baseline (DB outage) or is mid-restart. Confirming would lie
+            # and rejecting would read as an auth failure to the client, so
+            # close 1013 (Try Again Later): @rails/actioncable's connection
+            # monitor reconnects with backoff and the subscribe succeeds
+            # once storage is back.
+            :unavailable ->
+              Logger.warning(
+                "otp_rails_beam.cable: closing socket, cannot register subscription " <>
+                  "(listener/DB unavailable): #{inspect(identifier)}"
+              )
+
+              {:stop, {:shutdown, :subscription_storage_unavailable}, {1013, "try again later"},
+               state}
+          end
 
         {:reject, reason} ->
           :telemetry.execute(
@@ -123,7 +164,15 @@ defmodule OtpRailsBeam.Cable.Socket do
   defp handle_command("unsubscribe", %{"identifier" => identifier}, state)
        when is_binary(identifier) do
     if Map.has_key?(state.subscriptions, identifier) do
-      OtpRailsBeam.Cable.Listener.unsubscribe(state.listener, self(), identifier)
+      # A dead/restarting listener holds no registration for us anyway;
+      # dropping the local entry is the durable part (it also stops the
+      # re-subscribe loop from re-registering this identifier).
+      try do
+        OtpRailsBeam.Cable.Listener.unsubscribe(state.listener, self(), identifier)
+      catch
+        :exit, _reason -> :ok
+      end
+
       {:ok, %{state | subscriptions: Map.delete(state.subscriptions, identifier)}}
     else
       # Subscriptions#find raises -> execute_command logs; no frame.
@@ -208,7 +257,73 @@ defmodule OtpRailsBeam.Cable.Socket do
     end
   end
 
+  # The listener died (beam#8): this socket stays up — its subscriptions
+  # map is the durable copy — and re-registers with the restarted listener.
+  # Until that succeeds it simply misses broadcasts for the gap, exactly
+  # the documented contract.
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{listener_ref: ref} = state) do
+    Process.send_after(self(), :reattach_listener, @reattach_interval_ms)
+    {:ok, %{state | listener_ref: nil}}
+  end
+
+  def handle_info(:reattach_listener, state) do
+    case reattach(state) do
+      {:ok, state} ->
+        {:ok, state}
+
+      :retry ->
+        Process.send_after(self(), :reattach_listener, @reattach_interval_ms)
+        {:ok, state}
+    end
+  end
+
   def handle_info(_other, state), do: {:ok, state}
+
+  defp reattach(state) do
+    case Process.whereis(state.listener) do
+      nil ->
+        :retry
+
+      pid ->
+        ref = Process.monitor(pid)
+
+        result =
+          Enum.reduce_while(state.subscriptions, :ok, fn {identifier, streams}, :ok ->
+            case register_streams(state, identifier, streams) do
+              :ok -> {:cont, :ok}
+              :unavailable -> {:halt, :unavailable}
+            end
+          end)
+
+        case result do
+          :ok ->
+            {:ok, %{state | listener_ref: ref}}
+
+          # New listener is up but the DB (or the listener again) isn't:
+          # keep the monitor on whatever we saw and retry the registration
+          # sweep. register_streams is idempotent per {socket, identifier,
+          # stream}, so re-running it never double-subscribes.
+          :unavailable ->
+            Process.demonitor(ref, [:flush])
+            :retry
+        end
+    end
+  end
+
+  # Registers every stream with the listener; :unavailable when the
+  # listener is down mid-call or replies {:error, :db_unavailable}.
+  defp register_streams(state, identifier, streams) do
+    Enum.reduce_while(streams, :ok, fn stream, :ok ->
+      try do
+        case OtpRailsBeam.Cable.Listener.subscribe(state.listener, self(), identifier, stream) do
+          :ok -> {:cont, :ok}
+          {:error, :db_unavailable} -> {:halt, :unavailable}
+        end
+      catch
+        :exit, _reason -> {:halt, :unavailable}
+      end
+    end)
+  end
 
   @impl true
   def terminate(_reason, _state) do
