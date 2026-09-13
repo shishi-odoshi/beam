@@ -121,6 +121,75 @@ defmodule OtpRailsBeam.SocketTest do
     OtpRailsBeam.stop(sup)
   end
 
+  test "heartbeat lines longer than the socket buffer are not truncated", %{
+    tmp_dir: dir,
+    agent: agent
+  } do
+    sock = Path.join(dir, "s.sock")
+
+    {:ok, sup} = start_sup(sock, ["sleep", "30"])
+    assert wait_until(fn -> spawns(agent) >= 1 end), "child should start"
+
+    {:ok, conn} =
+      :gen_tcp.connect({:local, String.to_charlist(sock)}, 0, [:binary, active: false])
+
+    # The Ruby reference reads lines of any length; a 64 KB meta blob must be
+    # accepted, not silently truncated by the receive buffer and dropped as
+    # malformed JSON (regression: `packet: :line` did exactly that >~1400 B).
+    line =
+      Jason.encode!(%{
+        id: "hb",
+        state: "healthy",
+        ts: System.os_time(:second),
+        token: OtpRailsBeam.token(sup),
+        meta: %{blob: String.duplicate("x", 64_000)}
+      }) <> "\n"
+
+    :ok = :gen_tcp.send(conn, line)
+
+    assert wait_until(fn -> OtpRailsBeam.heartbeated?(sup, "hb") end),
+           "an oversized heartbeat line must still be parsed and recorded"
+
+    :gen_tcp.close(conn)
+    OtpRailsBeam.stop(sup)
+  end
+
+  test "a null or false cmd is dispatched as a heartbeat, like the reference", %{
+    tmp_dir: dir,
+    agent: agent
+  } do
+    sock = Path.join(dir, "s.sock")
+
+    {:ok, sup} = start_sup(sock, ["sleep", "30"])
+    assert wait_until(fn -> spawns(agent) >= 1 end), "child should start"
+
+    {:ok, conn} =
+      :gen_tcp.connect({:local, String.to_charlist(sock)}, 0, [:binary, active: false])
+
+    # Ruby dispatches control on `if msg["cmd"]` (truthiness), so JSON null
+    # and false fall through to the heartbeat branch and must here too.
+    for cmd <- [nil, false] do
+      line =
+        Jason.encode!(%{
+          cmd: cmd,
+          id: "hb",
+          state: "healthy",
+          ts: System.os_time(:second),
+          token: OtpRailsBeam.token(sup)
+        }) <> "\n"
+
+      :ok = :gen_tcp.send(conn, line)
+    end
+
+    assert wait_until(fn -> OtpRailsBeam.heartbeated?(sup, "hb") end),
+           "a falsy cmd must not swallow an otherwise-valid heartbeat"
+
+    assert spawns(agent) == 1, "a falsy cmd must never act as a control command"
+
+    :gen_tcp.close(conn)
+    OtpRailsBeam.stop(sup)
+  end
+
   test "killing the child's OS process triggers a restart", %{tmp_dir: dir, agent: agent} do
     sock = Path.join(dir, "s.sock")
 
