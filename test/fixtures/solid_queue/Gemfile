@@ -1,0 +1,13 @@
+# Test-only Gemfile: the REAL Solid Queue stack the interop suite runs the
+# Ruby side with (test/queue/). Nothing in lib/ depends on any of this.
+source "https://rubygems.org"
+
+gem "rails", "~> 8.0"
+gem "activerecord", "~> 8.0"
+gem "activejob", "~> 8.0"
+gem "solid_queue", "~> 1.7"
+gem "pg"
+
+# json 3.x currently breaks ActiveRecord's JSON coder (2-arg JSON.parse);
+# pin the 2.x line the Rails releases were tested against.
+gem "json", "~> 2.7"

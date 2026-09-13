@@ -37,3 +37,38 @@ jobs:
       - run: gem install otp-rails --version 0.1.1
       - run: mix deps.get
       - run: mix test --only contract
+
+  # Shared job queue interop tests (test/queue/, tagged :queue): the beam
+  # Solid Queue worker and a REAL solid_queue Ruby worker running
+  # concurrently against one Postgres schema — cross-claim, failure-interop,
+  # and kill -9 orphan-pruning proofs. Separate job so a queue failure is
+  # immediately distinguishable from a §5 contract or Elixir regression.
+  queue:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: otp_rails_beam_queue_test
+        ports:
+          - "55433:5432" # matches the suite's local-docker default port
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+          working-directory: test/fixtures/solid_queue
+      - run: mix deps.get
+      - run: mix test --only queue
