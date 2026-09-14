@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.Cable.SignedStreamName do
+defmodule OdoshiBeam.Cable.SignedStreamName do
   @moduledoc """
   Verifies Turbo signed stream names — the exact scheme turbo-rails (2.0.x)
   uses for `Turbo::StreamsChannel` subscriptions:

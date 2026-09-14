@@ -1,13 +1,13 @@
-defmodule OtpRailsBeam.Queue do
+defmodule OdoshiBeam.Queue do
   @moduledoc """
-  A Solid Queue worker on the BEAM (otp-rails Phase 4 step 2): consumes the
+  A Solid Queue worker on the BEAM (odoshi Phase 4 step 2): consumes the
   same Postgres tables a Rails app's Solid Queue writes, executing ONLY jobs
   routed to designated queue(s) through registered Elixir handlers. Ruby
   workers keep every other queue, and both kinds of worker — plus Solid
   Queue's own supervisor — run concurrently against the same schema.
 
       {:ok, queue} =
-        OtpRailsBeam.Queue.start_link(
+        OdoshiBeam.Queue.start_link(
           db: [
             hostname: "localhost",
             port: 5432,
@@ -33,14 +33,14 @@ defmodule OtpRailsBeam.Queue do
     enumerate the Ruby side explicitly (e.g. `queues: [default, mailers]`).
     See the README warning and beam#10.
   * `:handlers` (required) — map of ActiveJob `class_name` to a module
-    implementing `OtpRailsBeam.Queue.Handler`.
+    implementing `OdoshiBeam.Queue.Handler`.
   * `:batch_size` — max executions claimed per poll (default 3, the analog
     of Solid Queue's worker thread count).
   * `:polling_interval_ms` — default 100 (Solid Queue's 0.1s).
   * `:heartbeat_interval_ms` — default 60_000
     (`SolidQueue.process_heartbeat_interval`).
   * `:pool_size` — Postgrex pool size, default 2 (worker + heartbeat).
-  * `:name` — supervisor name, default `OtpRailsBeam.Queue`.
+  * `:name` — supervisor name, default `OdoshiBeam.Queue`.
 
   The tree is `rest_for_one`: DB pool → process registration (heartbeat) →
   worker loop, so a lost registration (e.g. Solid Queue's supervisor pruned
@@ -49,7 +49,7 @@ defmodule OtpRailsBeam.Queue do
 
   use Supervisor
 
-  alias OtpRailsBeam.Queue.{Registration, Worker}
+  alias OdoshiBeam.Queue.{Registration, Worker}
 
   def start_link(opts) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -93,7 +93,7 @@ defmodule OtpRailsBeam.Queue do
              metadata: %{
                queues: Enum.join(queues, ","),
                polling_interval: polling_interval_ms / 1000,
-               runtime: "beam (otp_rails_beam)"
+               runtime: "beam (odoshi_beam)"
              }
            ]
          ]},

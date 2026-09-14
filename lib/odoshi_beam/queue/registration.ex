@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.Queue.Registration do
+defmodule OdoshiBeam.Queue.Registration do
   @moduledoc """
   Owns this worker's `solid_queue_processes` row: registers it on init,
   touches `last_heartbeat_at` every `:heartbeat_interval_ms` (default 60s —
@@ -17,7 +17,7 @@ defmodule OtpRailsBeam.Queue.Registration do
   use GenServer
   require Logger
 
-  alias OtpRailsBeam.Queue.Store
+  alias OdoshiBeam.Queue.Store
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: opts[:name])
 
@@ -58,7 +58,7 @@ defmodule OtpRailsBeam.Queue.Registration do
 
       :pruned ->
         Logger.warning(
-          "otp_rails_beam.queue: process row #{state.id} (#{state.name}) was pruned by " <>
+          "odoshi_beam.queue: process row #{state.id} (#{state.name}) was pruned by " <>
             "Solid Queue's supervisor; restarting to re-register"
         )
 
@@ -78,7 +78,7 @@ defmodule OtpRailsBeam.Queue.Registration do
       catch
         kind, reason ->
           Logger.warning(
-            "otp_rails_beam.queue: deregister failed: #{Exception.format_banner(kind, reason)}"
+            "odoshi_beam.queue: deregister failed: #{Exception.format_banner(kind, reason)}"
           )
       end
     end
@@ -94,7 +94,7 @@ defmodule OtpRailsBeam.Queue.Registration do
   catch
     kind, reason ->
       Logger.warning(
-        "otp_rails_beam.queue: heartbeat failed (will retry): " <>
+        "odoshi_beam.queue: heartbeat failed (will retry): " <>
           Exception.format_banner(kind, reason)
       )
 

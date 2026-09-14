@@ -1,16 +1,16 @@
-defmodule OtpRailsBeam.Contract.RubyChildrenTest do
+defmodule OdoshiBeam.Contract.RubyChildrenTest do
   @moduledoc """
   Cross-implementation contract tests, direction 1: the BEAM supervisor
-  supervising RUBY children that speak §5 with the real `otp-rails` gem
-  (`OtpRails::Heartbeat`), plus a Ruby-side §9 control client.
+  supervising RUBY children that speak §5 with the real `odoshi` gem
+  (`Odoshi::Heartbeat`), plus a Ruby-side §9 control client.
 
-  Excluded from plain `mix test` (they need ruby + the otp-rails gem);
+  Excluded from plain `mix test` (they need ruby + the odoshi gem);
   run with `mix test --include contract` or `mix test --only contract`.
   """
 
   use ExUnit.Case, async: false
 
-  alias OtpRailsBeam.TestEvents
+  alias OdoshiBeam.TestEvents
 
   @moduletag :contract
   @moduletag capture_log: true
@@ -23,12 +23,12 @@ defmodule OtpRailsBeam.Contract.RubyChildrenTest do
     System.find_executable("ruby") || raise "contract tests need ruby on PATH"
 
     {_out, 0} =
-      System.cmd("ruby", ["-e", ~s(require "otp_rails/heartbeat")], stderr_to_stdout: true)
+      System.cmd("ruby", ["-e", ~s(require "odoshi/heartbeat")], stderr_to_stdout: true)
 
     :ok
   rescue
     e in MatchError ->
-      reraise "contract tests need the otp-rails gem (gem install otp-rails): #{inspect(e)}",
+      reraise "contract tests need the odoshi gem (gem install odoshi): #{inspect(e)}",
               __STACKTRACE__
   end
 
@@ -47,7 +47,7 @@ defmodule OtpRailsBeam.Contract.RubyChildrenTest do
     %{agent: agent, tmp_dir: dir}
   end
 
-  test "ruby child using OtpRails::Heartbeat registers active, degrades on silence, is restarted",
+  test "ruby child using Odoshi::Heartbeat registers active, degrades on silence, is restarted",
        %{tmp_dir: dir, agent: agent} do
     flag = Path.join(dir, "stop.flag")
     sock = Path.join(dir, "s.sock")
@@ -56,7 +56,7 @@ defmodule OtpRailsBeam.Contract.RubyChildrenTest do
     {:ok, sup} = start_sup(sock, cmd)
     assert wait_until(fn -> spawns(agent) >= 1 end), "ruby child should start"
 
-    assert wait_until(fn -> OtpRailsBeam.heartbeated?(sup, "hb") end),
+    assert wait_until(fn -> OdoshiBeam.heartbeated?(sup, "hb") end),
            "the gem's Heartbeat helper should register as active with the beam supervisor"
 
     File.touch!(flag)
@@ -67,7 +67,7 @@ defmodule OtpRailsBeam.Contract.RubyChildrenTest do
     assert wait_until(fn -> spawns(agent) >= 2 end),
            "6 missed intervals should count as :dead and restart the ruby child"
 
-    OtpRailsBeam.stop(sup)
+    OdoshiBeam.stop(sup)
   end
 
   test "ruby child heartbeating with a bad token is ignored, never treated as active",
@@ -91,9 +91,9 @@ defmodule OtpRailsBeam.Contract.RubyChildrenTest do
     assert TestEvents.named(agent, :degraded, "hb") == [],
            "a dropped heartbeat must not produce degraded reports"
 
-    refute OtpRailsBeam.heartbeated?(sup, "hb"), "the heartbeat must not be recorded"
+    refute OdoshiBeam.heartbeated?(sup, "hb"), "the heartbeat must not be recorded"
 
-    OtpRailsBeam.stop(sup)
+    OdoshiBeam.stop(sup)
   end
 
   test "ruby control client restarts the child; a bad token is ignored",
@@ -109,18 +109,18 @@ defmodule OtpRailsBeam.Contract.RubyChildrenTest do
     assert spawns(agent) == 1, "a bad-token control message must be ignored"
 
     {_out, 0} =
-      System.cmd("ruby", [control, sock, "hb", OtpRailsBeam.token(sup)], stderr_to_stdout: true)
+      System.cmd("ruby", [control, sock, "hb", OdoshiBeam.token(sup)], stderr_to_stdout: true)
 
     assert wait_until(fn -> spawns(agent) >= 2 end),
            "the ruby restart command should replace the child"
 
     assert TestEvents.named(agent, :drain, "hb") != [], "the old child should have been drained"
 
-    OtpRailsBeam.stop(sup)
+    OdoshiBeam.stop(sup)
   end
 
   defp start_sup(sock, cmd) do
-    OtpRailsBeam.start_link(
+    OdoshiBeam.start_link(
       socket_path: sock,
       strategy: :one_for_one,
       max_restarts: 20,

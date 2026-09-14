@@ -1,6 +1,6 @@
 # Usage: elixir heartbeater.exs INTERVAL_SECONDS STOPFLAG [ID]
 #
-# Sends NDJSON heartbeats (DESIGN §5) over OTP_RAILS_SOCK every INTERVAL
+# Sends NDJSON heartbeats (DESIGN §5) over ODOSHI_SOCK every INTERVAL
 # seconds until STOPFLAG exists — then goes silent but stays alive, which is
 # how a wedged-but-running child looks to the supervisor.
 # Mirrors test/fixtures/heartbeater.rb in the Ruby gem.
@@ -10,8 +10,8 @@ id = List.first(rest) || "hb"
 {interval, _} = Float.parse(interval_s)
 interval_ms = trunc(interval * 1000)
 
-sock_path = System.fetch_env!("OTP_RAILS_SOCK")
-token = System.get_env("OTP_RAILS_TOKEN", "")
+sock_path = System.fetch_env!("ODOSHI_SOCK")
+token = System.get_env("ODOSHI_TOKEN", "")
 
 connect = fn connect, attempts ->
   case :gen_tcp.connect({:local, String.to_charlist(sock_path)}, 0, [:binary, active: false]) do

@@ -20,7 +20,7 @@ jobs:
       - run: mix test
 
   # Cross-implementation contract tests (test/contract/): the BEAM supervisor
-  # against real Ruby children using the published otp-rails gem, and the Ruby
+  # against real Ruby children using the published odoshi gem, and the Ruby
   # supervisor against an Elixir child. A failure here and a green `test` job
   # means the two implementations disagree on the §5 wire contract.
   contract:
@@ -34,7 +34,7 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
-      - run: gem install otp-rails --version 0.1.1
+      - run: gem install odoshi --version 0.3.0
       - run: mix deps.get
       - run: mix test --only contract
 
@@ -51,7 +51,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: otp_rails_beam_queue_test
+          POSTGRES_DB: odoshi_beam_queue_test
         ports:
           - "55433:5432" # matches the suite's local-docker default port
         options: >-
@@ -73,7 +73,7 @@ jobs:
       - run: mix deps.get
       - run: mix test --only queue
 
-  # Cable interop tests (test/cable/, tagged :cable): OtpRailsBeam.Cable
+  # Cable interop tests (test/cable/, tagged :cable): OdoshiBeam.Cable
   # serving the ActionCable v1 JSON protocol against the REAL solid_cable +
   # turbo-rails stack — Ruby signs the stream names and broadcasts through
   # Solid Cable's pubsub; an Elixir websocket client asserts the frames.
@@ -87,7 +87,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: otp_rails_beam_cable_test
+          POSTGRES_DB: odoshi_beam_cable_test
         ports:
           - "55433:5432" # matches the suite's local-docker default port
         options: >-

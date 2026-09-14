@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.CableHelpers do
+defmodule OdoshiBeam.CableHelpers do
   @moduledoc """
   Shared plumbing for the Solid Cable interop tests (test/cable/, tagged
   `:cable`): Postgres connection options (env-overridable, defaulting to
@@ -12,7 +12,7 @@ defmodule OtpRailsBeam.CableHelpers do
 
   # One shared secret_key_base for the whole suite (the Ruby fixture and
   # every beam Cable instance derive the same Turbo verifier key from it).
-  @secret_key_base "otp-rails-beam-cable-interop-secret"
+  @secret_key_base "odoshi-beam-cable-interop-secret"
 
   def fixture_dir, do: @fixture_dir
   def secret_key_base, do: @secret_key_base
@@ -23,7 +23,7 @@ defmodule OtpRailsBeam.CableHelpers do
       port: String.to_integer(System.get_env("SOLID_CABLE_PG_PORT", "55433")),
       user: System.get_env("SOLID_CABLE_PG_USER", "postgres"),
       password: System.get_env("SOLID_CABLE_PG_PASSWORD", "postgres"),
-      database: System.get_env("SOLID_CABLE_PG_DATABASE", "otp_rails_beam_cable_test")
+      database: System.get_env("SOLID_CABLE_PG_DATABASE", "odoshi_beam_cable_test")
     }
   end
 
@@ -130,7 +130,7 @@ defmodule OtpRailsBeam.CableHelpers do
   stop/start a REAL Postgres under the suite.
   """
   def pg_container do
-    System.get_env("CABLE_PG_CONTAINER", "otp-rails-beam-queue-pg")
+    System.get_env("CABLE_PG_CONTAINER", "odoshi-beam-queue-pg")
   end
 
   def stop_db! do

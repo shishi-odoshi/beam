@@ -1,10 +1,10 @@
-defmodule OtpRailsBeam.Cable.SignedStreamNameTest do
+defmodule OdoshiBeam.Cable.SignedStreamNameTest do
   # Pure unit tests against Ruby-produced vectors — no Postgres, no Ruby at
   # test time, so these run in the default `mix test` suite (the live
   # cross-language proofs are in cable_interop_test.exs, tagged :cable).
   use ExUnit.Case, async: true
 
-  alias OtpRailsBeam.Cable.{Listener, SignedStreamName}
+  alias OdoshiBeam.Cable.{Listener, SignedStreamName}
 
   # Produced by the real stack (test/fixtures/solid_cable, rails 8.1 +
   # turbo-rails 2.0):

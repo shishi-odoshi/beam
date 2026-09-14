@@ -1,5 +1,5 @@
 # Kill-target for the orphan-release interop test: a standalone OS process
-# running OtpRailsBeam.Queue with a handler that never returns, so its
+# running OdoshiBeam.Queue with a handler that never returns, so its
 # claimed executions stay claimed until the process is SIGKILLed and Solid
 # Queue's Ruby-side pruning cleans up after it.
 #
@@ -11,7 +11,7 @@
 {:ok, _} = Application.ensure_all_started(:jason)
 
 defmodule KillTarget.StuckHandler do
-  @behaviour OtpRailsBeam.Queue.Handler
+  @behaviour OdoshiBeam.Queue.Handler
 
   @impl true
   def perform(_args) do
@@ -24,11 +24,11 @@ db = [
   port: String.to_integer(System.get_env("SOLID_QUEUE_PG_PORT", "55433")),
   username: System.get_env("SOLID_QUEUE_PG_USER", "postgres"),
   password: System.get_env("SOLID_QUEUE_PG_PASSWORD", "postgres"),
-  database: System.get_env("SOLID_QUEUE_PG_DATABASE", "otp_rails_beam_queue_test")
+  database: System.get_env("SOLID_QUEUE_PG_DATABASE", "odoshi_beam_queue_test")
 ]
 
 {:ok, _queue} =
-  OtpRailsBeam.Queue.start_link(
+  OdoshiBeam.Queue.start_link(
     db: db,
     queues: ["elixir"],
     handlers: %{"MarkerJob" => KillTarget.StuckHandler},

@@ -1,11 +1,11 @@
-defmodule OtpRailsBeam do
+defmodule OdoshiBeam do
   @moduledoc """
   Elixir sidecar supervisor for Rails (or arbitrary) processes, speaking the
-  otp-rails DESIGN §5 health protocol and emitting the §6 telemetry events.
+  odoshi DESIGN §5 health protocol and emitting the §6 telemetry events.
 
       {:ok, sup} =
-        OtpRailsBeam.start_link(
-          socket_path: "tmp/otp-rails.sock",
+        OdoshiBeam.start_link(
+          socket_path: "tmp/odoshi.sock",
           strategy: :one_for_one,
           max_restarts: 5,
           max_seconds: 60,
@@ -15,18 +15,18 @@ defmodule OtpRailsBeam do
           ]
         )
 
-  Children inherit `OTP_RAILS_SOCK` / `OTP_RAILS_TOKEN` and may send NDJSON
+  Children inherit `ODOSHI_SOCK` / `ODOSHI_TOKEN` and may send NDJSON
   heartbeats; `{"cmd":"restart","id":...,"token":...}` on the same socket
   replaces a child. See the README Contract section.
   """
 
-  alias OtpRailsBeam.{Root, Telemetry}
+  alias OdoshiBeam.{Root, Telemetry}
 
   @doc """
   Start a supervision tree. Options:
 
   * `:socket_path` (required) — Unix socket path for §5 heartbeats/control.
-  * `:children` (required) — list of `OtpRailsBeam.ChildSpec` attrs.
+  * `:children` (required) — list of `OdoshiBeam.ChildSpec` attrs.
   * `:strategy` — `:one_for_one` (default) or `:rest_for_one`.
   * `:max_restarts` / `:max_seconds` — native OTP restart intensity.
   """
@@ -44,7 +44,7 @@ defmodule OtpRailsBeam do
   @doc "Stop the tree cleanly (drains children in reverse start order)."
   def stop(sup, timeout \\ :infinity), do: Supervisor.stop(sup, :normal, timeout)
 
-  @doc "The per-boot heartbeat token (exported to children as OTP_RAILS_TOKEN)."
+  @doc "The per-boot heartbeat token (exported to children as ODOSHI_TOKEN)."
   def token(sup), do: ctx(sup).token
 
   @doc "Gracefully replace one child, same as the socket restart command."
@@ -79,10 +79,10 @@ defmodule OtpRailsBeam do
       receive do
         {:DOWN, ^ref, :process, ^pid, reason} ->
           if reason == :shutdown do
-            Telemetry.emit([:otp_rails, :supervisor, :escalate], %{}, %{})
+            Telemetry.emit([:odoshi, :supervisor, :escalate], %{}, %{})
           end
 
-          Telemetry.emit([:otp_rails, :supervisor, :stop], %{}, %{})
+          Telemetry.emit([:odoshi, :supervisor, :stop], %{}, %{})
       end
     end)
   end

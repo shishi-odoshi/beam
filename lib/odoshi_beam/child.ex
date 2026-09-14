@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.Child do
+defmodule OdoshiBeam.Child do
   @moduledoc """
   One GenServer per supervised OS process, owning its Port.
 
@@ -18,7 +18,7 @@ defmodule OtpRailsBeam.Child do
 
   use GenServer
 
-  alias OtpRailsBeam.Telemetry
+  alias OdoshiBeam.Telemetry
 
   @hb_states %{
     "starting" => :starting,
@@ -49,8 +49,8 @@ defmodule OtpRailsBeam.Child do
         :exit_status,
         args: tl(spec.cmd),
         env: [
-          {~c"OTP_RAILS_SOCK", String.to_charlist(ctx.socket_path)},
-          {~c"OTP_RAILS_TOKEN", String.to_charlist(ctx.token)}
+          {~c"ODOSHI_SOCK", String.to_charlist(ctx.socket_path)},
+          {~c"ODOSHI_TOKEN", String.to_charlist(ctx.token)}
         ]
       ])
 
@@ -64,17 +64,17 @@ defmodule OtpRailsBeam.Child do
     # replacement (manual flag) emits only drain + spawn, like the Ruby
     # supervisor's restart!. Native OTP restarts immediately: backoff_ms is 0.
     if spawn_count > 1 and not manual? do
-      Telemetry.emit([:otp_rails, :child, :restart], %{backoff_ms: 0}, %{
+      Telemetry.emit([:odoshi, :child, :restart], %{backoff_ms: 0}, %{
         id: spec.id,
         attempt: spawn_count - 1,
         strategy: ctx.strategy
       })
     end
 
-    Telemetry.emit([:otp_rails, :child, :spawn], %{}, %{id: spec.id, pid: os_pid})
+    Telemetry.emit([:odoshi, :child, :spawn], %{}, %{id: spec.id, pid: os_pid})
     # No probes in step 1: like the Ruby :command adapter without a probe,
     # a live OS process is healthy.
-    Telemetry.emit([:otp_rails, :child, :healthy], %{}, %{id: spec.id})
+    Telemetry.emit([:odoshi, :child, :healthy], %{}, %{id: spec.id})
 
     state = %{
       ctx: ctx,
@@ -107,7 +107,7 @@ defmodule OtpRailsBeam.Child do
 
       :degraded ->
         n = state.degraded + 1
-        Telemetry.emit([:otp_rails, :child, :degraded], %{consecutive: n}, %{id: spec.id})
+        Telemetry.emit([:odoshi, :child, :degraded], %{consecutive: n}, %{id: spec.id})
         schedule_tick(spec)
         {:noreply, %{state | degraded: n}}
 
@@ -167,7 +167,7 @@ defmodule OtpRailsBeam.Child do
 
   defp drain(state) do
     %{spec: spec, port: port, os_pid: os_pid} = state
-    Telemetry.emit([:otp_rails, :child, :drain], %{}, %{id: spec.id})
+    Telemetry.emit([:odoshi, :child, :drain], %{}, %{id: spec.id})
     signal(os_pid, "TERM")
 
     case await_exit(port, spec.shutdown_ms) do
@@ -175,7 +175,7 @@ defmodule OtpRailsBeam.Child do
         %{state | exited: true}
 
       :timeout ->
-        Telemetry.emit([:otp_rails, :child, :kill], %{}, %{id: spec.id})
+        Telemetry.emit([:odoshi, :child, :kill], %{}, %{id: spec.id})
         signal(os_pid, "KILL")
 
         case await_exit(port, 2_000) do
@@ -198,7 +198,7 @@ defmodule OtpRailsBeam.Child do
   defp emit_exit(state, code) do
     uptime_ms = System.monotonic_time(:millisecond) - state.started_at
 
-    Telemetry.emit([:otp_rails, :child, :exit], %{exit_code: code, uptime_ms: uptime_ms}, %{
+    Telemetry.emit([:odoshi, :child, :exit], %{exit_code: code, uptime_ms: uptime_ms}, %{
       id: state.spec.id
     })
   end

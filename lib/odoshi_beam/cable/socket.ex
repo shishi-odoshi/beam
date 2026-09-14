@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.Cable.Socket do
+defmodule OdoshiBeam.Cable.Socket do
   @moduledoc """
   A WebSock handler speaking the ActionCable v1 JSON protocol — client
   frames and server frames exactly as Action Cable (8.0.x) does:
@@ -89,7 +89,7 @@ defmodule OtpRailsBeam.Cable.Socket do
     state = %{state | listener_ref: Process.monitor(state.listener)}
 
     :telemetry.execute(
-      [:otp_rails_beam, :cable, :connect],
+      [:odoshi_beam, :cable, :connect],
       %{system_time: System.system_time()},
       %{}
     )
@@ -106,7 +106,7 @@ defmodule OtpRailsBeam.Cable.Socket do
 
       _ ->
         # Subscriptions#execute_command rescues and logs; no reply frame.
-        Logger.error("otp_rails_beam.cable: unparseable client frame: #{inspect(data)}")
+        Logger.error("odoshi_beam.cable: unparseable client frame: #{inspect(data)}")
         {:ok, state}
     end
   end
@@ -125,7 +125,7 @@ defmodule OtpRailsBeam.Cable.Socket do
           case register_streams(state, identifier, streams) do
             :ok ->
               :telemetry.execute(
-                [:otp_rails_beam, :cable, :subscribe],
+                [:odoshi_beam, :cable, :subscribe],
                 %{system_time: System.system_time()},
                 %{identifier: identifier, streams: streams}
               )
@@ -141,7 +141,7 @@ defmodule OtpRailsBeam.Cable.Socket do
             # once storage is back.
             :unavailable ->
               Logger.warning(
-                "otp_rails_beam.cable: closing socket, cannot register subscription " <>
+                "odoshi_beam.cable: closing socket, cannot register subscription " <>
                   "(listener/DB unavailable): #{inspect(identifier)}"
               )
 
@@ -151,7 +151,7 @@ defmodule OtpRailsBeam.Cable.Socket do
 
         {:reject, reason} ->
           :telemetry.execute(
-            [:otp_rails_beam, :cable, :reject],
+            [:odoshi_beam, :cable, :reject],
             %{system_time: System.system_time()},
             %{identifier: identifier, reason: reason}
           )
@@ -168,7 +168,7 @@ defmodule OtpRailsBeam.Cable.Socket do
       # dropping the local entry is the durable part (it also stops the
       # re-subscribe loop from re-registering this identifier).
       try do
-        OtpRailsBeam.Cable.Listener.unsubscribe(state.listener, self(), identifier)
+        OdoshiBeam.Cable.Listener.unsubscribe(state.listener, self(), identifier)
       catch
         :exit, _reason -> :ok
       end
@@ -184,14 +184,14 @@ defmodule OtpRailsBeam.Cable.Socket do
     # Channel actions (`perform_action`) run Ruby channel code; Turbo's
     # StreamsChannel defines none. Ignored in v1 (logged like the Ruby
     # rescue path would).
-    Logger.debug("otp_rails_beam.cable: ignoring channel action (no channel code in beam v1)")
+    Logger.debug("odoshi_beam.cable: ignoring channel action (no channel code in beam v1)")
     {:ok, state}
   end
 
   defp handle_command(other, payload, state) do
     # Subscriptions#execute_command: "Received unrecognized command".
     Logger.error(
-      "otp_rails_beam.cable: unrecognized command #{inspect(other)} in #{inspect(payload)}"
+      "odoshi_beam.cable: unrecognized command #{inspect(other)} in #{inspect(payload)}"
     )
 
     {:ok, state}
@@ -202,7 +202,7 @@ defmodule OtpRailsBeam.Cable.Socket do
   defp authorize(identifier, state) do
     case Jason.decode(identifier) do
       {:ok, %{"channel" => "Turbo::StreamsChannel"} = params} ->
-        case OtpRailsBeam.Cable.SignedStreamName.verify(
+        case OdoshiBeam.Cable.SignedStreamName.verify(
                params["signed_stream_name"],
                state.verifier_key
              ) do
@@ -237,7 +237,7 @@ defmodule OtpRailsBeam.Cable.Socket do
     end
   rescue
     error ->
-      Logger.error("otp_rails_beam.cable: allowed_channels function raised: #{inspect(error)}")
+      Logger.error("odoshi_beam.cable: allowed_channels function raised: #{inspect(error)}")
       {:reject, :allowlist_rejected}
   end
 
@@ -315,7 +315,7 @@ defmodule OtpRailsBeam.Cable.Socket do
   defp register_streams(state, identifier, streams) do
     Enum.reduce_while(streams, :ok, fn stream, :ok ->
       try do
-        case OtpRailsBeam.Cable.Listener.subscribe(state.listener, self(), identifier, stream) do
+        case OdoshiBeam.Cable.Listener.subscribe(state.listener, self(), identifier, stream) do
           :ok -> {:cont, :ok}
           {:error, :db_unavailable} -> {:halt, :unavailable}
         end

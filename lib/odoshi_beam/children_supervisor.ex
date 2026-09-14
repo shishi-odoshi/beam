@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.ChildrenSupervisor do
+defmodule OdoshiBeam.ChildrenSupervisor do
   @moduledoc """
   The native OTP supervisor over the external children. Strategy and restart
   intensity are plain OTP: `strategy` (one_for_one | rest_for_one),
@@ -9,7 +9,7 @@ defmodule OtpRailsBeam.ChildrenSupervisor do
 
   use Supervisor
 
-  alias OtpRailsBeam.Child
+  alias OdoshiBeam.Child
 
   def start_link(arg), do: Supervisor.start_link(__MODULE__, arg)
 

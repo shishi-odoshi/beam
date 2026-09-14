@@ -1,7 +1,7 @@
-defmodule OtpRailsBeam.SocketServer do
+defmodule OdoshiBeam.SocketServer do
   @moduledoc """
   DESIGN §5 active heartbeats + §9 control transport — the frozen wire
-  contract, mirroring `OtpRails::SocketServer` in the Ruby gem exactly.
+  contract, mirroring `Odoshi::SocketServer` in the Ruby gem exactly.
 
   Newline-delimited JSON over a Unix domain socket, mode 0600, per-boot token.
   No MessagePack, no length prefixes, no versions, no acks.
@@ -21,7 +21,7 @@ defmodule OtpRailsBeam.SocketServer do
 
   use GenServer
 
-  alias OtpRailsBeam.Root
+  alias OdoshiBeam.Root
 
   # §5: max line length, INCLUDING the newline — longer lines are malformed.
   # Mirrors the Ruby reference's `conn.gets("\n", MAX_LINE)` exactly: a line

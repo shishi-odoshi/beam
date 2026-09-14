@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.TestEvents do
+defmodule OdoshiBeam.TestEvents do
   @moduledoc """
   Telemetry capture for tests: attaches to every §6 event and accumulates them
   in an Agent, so assertions can poll instead of racing the mailbox.
@@ -13,7 +13,7 @@ defmodule OtpRailsBeam.TestEvents do
     :ok =
       :telemetry.attach_many(
         handler_id,
-        OtpRailsBeam.Telemetry.events(),
+        OdoshiBeam.Telemetry.events(),
         &__MODULE__.handle/4,
         %{agent: agent}
       )

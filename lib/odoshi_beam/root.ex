@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.Root do
+defmodule OdoshiBeam.Root do
   @moduledoc """
   The root of one supervision tree instance:
 
@@ -7,13 +7,13 @@ defmodule OtpRailsBeam.Root do
       └── ChildrenSupervisor  (native OTP strategy/intensity over Child ports)
 
   The socket server starts first so the per-boot token and socket path exist
-  before any child spawns; children receive OTP_RAILS_SOCK / OTP_RAILS_TOKEN
+  before any child spawns; children receive ODOSHI_SOCK / ODOSHI_TOKEN
   in their environment (DESIGN §9).
   """
 
   use Supervisor
 
-  alias OtpRailsBeam.{ChildrenSupervisor, ChildSpec, SocketServer, Telemetry}
+  alias OdoshiBeam.{ChildrenSupervisor, ChildSpec, SocketServer, Telemetry}
 
   @strategies [:one_for_one, :rest_for_one]
 
@@ -40,7 +40,7 @@ defmodule OtpRailsBeam.Root do
     # Owned by the root supervisor process, lives exactly as long as the tree.
     # Holds heartbeats ({:hb, id}), spawn counters ({:count, id}) and
     # control-restart markers ({:manual, id}).
-    table = :ets.new(:otp_rails_beam, [:set, :public])
+    table = :ets.new(:odoshi_beam, [:set, :public])
     token = Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
 
     ctx = %{
@@ -52,7 +52,7 @@ defmodule OtpRailsBeam.Root do
       ids: ids
     }
 
-    Telemetry.emit([:otp_rails, :supervisor, :start], %{}, %{strategy: strategy, children: ids})
+    Telemetry.emit([:odoshi, :supervisor, :start], %{}, %{strategy: strategy, children: ids})
 
     children = [
       {SocketServer, ctx},

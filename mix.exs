@@ -1,22 +1,22 @@
-defmodule OtpRailsBeam.MixProject do
+defmodule OdoshiBeam.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :otp_rails_beam,
+      app: :odoshi_beam,
       version: "0.1.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description:
-        "Elixir sidecar supervisor for Rails processes speaking the otp-rails §5/§6 contract"
+        "Elixir sidecar supervisor for Rails processes speaking the odoshi §5/§6 contract"
     ]
   end
 
   def application do
     # Library-style app: supervision trees are started explicitly via
-    # OtpRailsBeam.start_link/1, never implicitly at application boot.
+    # OdoshiBeam.start_link/1, never implicitly at application boot.
     [extra_applications: [:logger, :crypto]]
   end
 

@@ -1,11 +1,11 @@
-defmodule OtpRailsBeam.Queue.Handler do
+defmodule OdoshiBeam.Queue.Handler do
   @moduledoc """
   Behaviour for Elixir job handlers backing ActiveJob classes.
 
-  A handler is registered in `OtpRailsBeam.Queue`'s `:handlers` map under the
+  A handler is registered in `OdoshiBeam.Queue`'s `:handlers` map under the
   ActiveJob class name (`"HardJob"` => `MyApp.HardJob`) and receives the
   job's ActiveJob `arguments` array, deserialized to plain Elixir terms (see
-  `OtpRailsBeam.Queue.ActiveJob` for exactly what is and isn't supported).
+  `OdoshiBeam.Queue.ActiveJob` for exactly what is and isn't supported).
 
   Return `:ok` on success. Return `{:error, term}` — or raise/throw/exit — to
   fail the execution: the job lands in `solid_queue_failed_executions` with a

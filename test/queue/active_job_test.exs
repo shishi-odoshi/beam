@@ -1,7 +1,7 @@
-defmodule OtpRailsBeam.Queue.ActiveJobTest do
+defmodule OdoshiBeam.Queue.ActiveJobTest do
   use ExUnit.Case, async: true
 
-  alias OtpRailsBeam.Queue.ActiveJob
+  alias OdoshiBeam.Queue.ActiveJob
 
   defp envelope(args, extra \\ %{}) do
     %{

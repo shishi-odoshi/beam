@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.Queue.OrphanReleaseTest do
+defmodule OdoshiBeam.Queue.OrphanReleaseTest do
   @moduledoc """
   The orphan contract, proven with a real SIGKILL: a beam worker that dies
   without deregistering must be cleaned up by Solid Queue's OWN Ruby-side
@@ -10,7 +10,7 @@ defmodule OtpRailsBeam.Queue.OrphanReleaseTest do
 
   use ExUnit.Case, async: false
 
-  import OtpRailsBeam.QueueHelpers
+  import OdoshiBeam.QueueHelpers
 
   @moduletag :queue
   @moduletag timeout: 120_000
@@ -25,7 +25,7 @@ defmodule OtpRailsBeam.Queue.OrphanReleaseTest do
     log = Path.join(dir, "log")
     ruby!("enqueue.rb", ["elixir", "2", "k", log])
 
-    # A separate OS process running OtpRailsBeam.Queue with a stuck handler
+    # A separate OS process running OdoshiBeam.Queue with a stuck handler
     # (claims both jobs, then sleeps in perform forever).
     port = spawn_kill_target()
     os_pid = await_line(port, "QUEUE_WORKER_UP")

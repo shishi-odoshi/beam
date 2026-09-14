@@ -58,7 +58,7 @@ ActiveRecord::Base.establish_connection(
   port: Integer(ENV.fetch("SOLID_CABLE_PG_PORT", "55433")),
   username: ENV.fetch("SOLID_CABLE_PG_USER", "postgres"),
   password: ENV.fetch("SOLID_CABLE_PG_PASSWORD", "postgres"),
-  database: ENV.fetch("SOLID_CABLE_PG_DATABASE", "otp_rails_beam_cable_test"),
+  database: ENV.fetch("SOLID_CABLE_PG_DATABASE", "odoshi_beam_cable_test"),
   pool: 10
 )
 
