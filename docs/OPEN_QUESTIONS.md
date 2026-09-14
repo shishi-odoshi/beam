@@ -1,7 +1,7 @@
 # Open questions / contract notes
 
 Where DESIGN.md left room for interpretation, the Ruby reference
-implementation (`lib/otp_rails/socket_server.rb`, `lib/otp_rails/supervisor.rb`)
+implementation (`lib/odoshi/socket_server.rb`, `lib/odoshi/supervisor.rb`)
 was treated as the tie-breaker and mirrored exactly. Nothing here blocked
 implementation; these are recorded so the ambiguity is visible rather than
 silently absorbed.
@@ -37,10 +37,10 @@ Native OTP supervisors expose no callback at the moment they restart a child
 or give up (intensity exceeded), so two events are reconstructed rather than
 emitted in-line:
 
-- `[:otp_rails, :child, :restart]` is emitted from the *replacement* child's
+- `[:odoshi, :child, :restart]` is emitted from the *replacement* child's
   init (spawn counter in ETS), with `backoff_ms: 0` — native OTP has no
   backoff. The `attempt`/`strategy` metadata is preserved.
-- `[:otp_rails, :supervisor, :escalate]` is emitted by an external monitor
+- `[:odoshi, :supervisor, :escalate]` is emitted by an external monitor
   when the tree exits with reason `:shutdown` (what a native supervisor exits
   with after exceeding intensity); measurements like Ruby's `{restarts}` /
   `{within}` are not observable from outside and are omitted.
@@ -85,7 +85,7 @@ dispatcher's concurrency maintenance dispatches the blocked job.
 ## 7. Unregistered job class on a designated queue ⇒ loud failed_execution
 
 If a job lands on a beam queue with no registered handler, beam fails it
-(`OtpRailsBeam.Queue.UnknownJobClassError`) instead of skipping it. Skipping
+(`OdoshiBeam.Queue.UnknownJobClassError`) instead of skipping it. Skipping
 would either leave it claimed forever (blocks pruning heuristics) or
 silently starve it — a routing bug should be visible in Mission Control and
 retriable after registering the handler. Filtering the claim query by
@@ -123,7 +123,7 @@ guards the connection, not individual subscriptions). beam sends an explicit
 - **Chosen:** (b) — a client-visible superset that no conforming client can
   distinguish from a channel whose `subscribed` called `reject`, and the
   deliverable's auth boundary ("anything else rejected") reads as (b).
-- Documented in the README and `OtpRailsBeam.Cable.Socket` moduledoc.
+- Documented in the README and `OdoshiBeam.Cable.Socket` moduledoc.
 
 ## 11. Allowlisted channels need beam-side stream mapping
 
