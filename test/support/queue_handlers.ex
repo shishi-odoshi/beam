@@ -1,9 +1,9 @@
-defmodule OtpRailsBeam.QueueHandlers do
+defmodule OdoshiBeam.QueueHandlers do
   @moduledoc "Elixir handlers backing the fixture ActiveJob classes in tests."
 
   defmodule Marker do
     @moduledoc "Elixir twin of the Ruby MarkerJob: appends `beam <id>` to the shared log."
-    @behaviour OtpRailsBeam.Queue.Handler
+    @behaviour OdoshiBeam.Queue.Handler
 
     @impl true
     def perform([log_path, id]) do
@@ -14,7 +14,7 @@ defmodule OtpRailsBeam.QueueHandlers do
 
   defmodule Failing do
     @moduledoc "Raises, so the job lands in solid_queue_failed_executions."
-    @behaviour OtpRailsBeam.Queue.Handler
+    @behaviour OdoshiBeam.Queue.Handler
 
     @impl true
     def perform(_args) do

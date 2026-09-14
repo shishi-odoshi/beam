@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.QueueHelpers do
+defmodule OdoshiBeam.QueueHelpers do
   @moduledoc """
   Shared plumbing for the Solid Queue interop tests (test/queue/, tagged
   `:queue`): Postgres connection options (env-overridable, defaulting to the
@@ -18,7 +18,7 @@ defmodule OtpRailsBeam.QueueHelpers do
       port: String.to_integer(System.get_env("SOLID_QUEUE_PG_PORT", "55433")),
       user: System.get_env("SOLID_QUEUE_PG_USER", "postgres"),
       password: System.get_env("SOLID_QUEUE_PG_PASSWORD", "postgres"),
-      database: System.get_env("SOLID_QUEUE_PG_DATABASE", "otp_rails_beam_queue_test")
+      database: System.get_env("SOLID_QUEUE_PG_DATABASE", "odoshi_beam_queue_test")
     }
   end
 
@@ -111,7 +111,7 @@ defmodule OtpRailsBeam.QueueHelpers do
     dir =
       Path.join(
         System.tmp_dir!(),
-        "otp_rails_beam_queue_#{tag}_#{System.unique_integer([:positive])}"
+        "odoshi_beam_queue_#{tag}_#{System.unique_integer([:positive])}"
       )
 
     File.rm_rf!(dir)

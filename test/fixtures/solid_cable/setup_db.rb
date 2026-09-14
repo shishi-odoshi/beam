@@ -7,7 +7,7 @@
 
 require "pg"
 
-db_name = ENV.fetch("SOLID_CABLE_PG_DATABASE", "otp_rails_beam_cable_test")
+db_name = ENV.fetch("SOLID_CABLE_PG_DATABASE", "odoshi_beam_cable_test")
 admin = PG.connect(
   host: ENV.fetch("SOLID_CABLE_PG_HOST", "127.0.0.1"),
   port: Integer(ENV.fetch("SOLID_CABLE_PG_PORT", "55433")),

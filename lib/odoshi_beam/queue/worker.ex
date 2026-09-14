@@ -1,26 +1,26 @@
-defmodule OtpRailsBeam.Queue.Worker do
+defmodule OdoshiBeam.Queue.Worker do
   @moduledoc """
   The poll → claim → execute loop, mirroring `SolidQueue::Worker`:
 
   * polls the designated queues on `:polling_interval_ms`, claiming up to
     `:batch_size` executions per poll with `ReadyExecution.claim` semantics
-    (see `OtpRailsBeam.Queue.Store.claim/4`);
+    (see `OdoshiBeam.Queue.Store.claim/4`);
   * executes each claimed job through its registered
-    `OtpRailsBeam.Queue.Handler` (v1 runs jobs sequentially in this process —
+    `OdoshiBeam.Queue.Handler` (v1 runs jobs sequentially in this process —
     the claim batch is the analog of the Ruby pool's available capacity);
   * finishes or fails each execution exactly like `ClaimedExecution#perform`.
 
   Emits beam-local telemetry (never the frozen §6 contract events):
 
-      [:otp_rails_beam, :job, :start]    %{system_time}   %{job_id, active_job_id, class_name, queue_name}
-      [:otp_rails_beam, :job, :finish]   %{duration_ms}   same metadata
-      [:otp_rails_beam, :job, :failure]  %{duration_ms}   metadata + %{error: %{exception_class, message, backtrace}}
+      [:odoshi_beam, :job, :start]    %{system_time}   %{job_id, active_job_id, class_name, queue_name}
+      [:odoshi_beam, :job, :finish]   %{duration_ms}   same metadata
+      [:odoshi_beam, :job, :failure]  %{duration_ms}   metadata + %{error: %{exception_class, message, backtrace}}
   """
 
   use GenServer
   require Logger
 
-  alias OtpRailsBeam.Queue.{ActiveJob, Registration, Store}
+  alias OdoshiBeam.Queue.{ActiveJob, Registration, Store}
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: opts[:name])
 
@@ -60,7 +60,7 @@ defmodule OtpRailsBeam.Queue.Worker do
       # polling speed; back off one interval and try again. Anything that
       # isn't a connection error crashes (crash-only).
       {:error, %DBConnection.ConnectionError{} = err} ->
-        Logger.warning("otp_rails_beam.queue: claim failed (will retry): #{err.message}")
+        Logger.warning("odoshi_beam.queue: claim failed (will retry): #{err.message}")
         Process.send_after(self(), :poll, state.polling_interval_ms * 10)
     end
 
@@ -84,7 +84,7 @@ defmodule OtpRailsBeam.Queue.Worker do
         }
 
         :telemetry.execute(
-          [:otp_rails_beam, :job, :start],
+          [:odoshi_beam, :job, :start],
           %{system_time: System.system_time()},
           meta
         )
@@ -98,7 +98,7 @@ defmodule OtpRailsBeam.Queue.Worker do
             Store.finish(state.db, claimed_id, job_id)
 
             :telemetry.execute(
-              [:otp_rails_beam, :job, :finish],
+              [:odoshi_beam, :job, :finish],
               %{duration_ms: duration_ms},
               meta
             )
@@ -107,7 +107,7 @@ defmodule OtpRailsBeam.Queue.Worker do
             Store.fail(state.db, claimed_id, job_id, error)
 
             :telemetry.execute(
-              [:otp_rails_beam, :job, :failure],
+              [:odoshi_beam, :job, :failure],
               %{duration_ms: duration_ms},
               Map.put(meta, :error, error)
             )
@@ -115,10 +115,10 @@ defmodule OtpRailsBeam.Queue.Worker do
 
       # FK-impossible in practice, but never crash the loop over a vanished job.
       :not_found ->
-        Logger.warning("otp_rails_beam.queue: claimed job #{job_id} no longer exists")
+        Logger.warning("odoshi_beam.queue: claimed job #{job_id} no longer exists")
 
         Store.fail(state.db, claimed_id, job_id, %{
-          exception_class: "OtpRailsBeam.Queue.MissingJobError",
+          exception_class: "OdoshiBeam.Queue.MissingJobError",
           message: "solid_queue_jobs row #{job_id} not found for claimed execution",
           backtrace: []
         })
@@ -139,7 +139,7 @@ defmodule OtpRailsBeam.Queue.Worker do
             # claiming it forever or silently skipping it.
             {:failed,
              %{
-               exception_class: "OtpRailsBeam.Queue.UnknownJobClassError",
+               exception_class: "OdoshiBeam.Queue.UnknownJobClassError",
                message:
                  "no Elixir handler registered for ActiveJob class #{inspect(job_class)} " <>
                    "on queue #{inspect(job.queue_name)}",
@@ -150,7 +150,7 @@ defmodule OtpRailsBeam.Queue.Worker do
       {:error, message} ->
         {:failed,
          %{
-           exception_class: "OtpRailsBeam.Queue.DeserializationError",
+           exception_class: "OdoshiBeam.Queue.DeserializationError",
            message: message,
            backtrace: []
          }}
@@ -165,7 +165,7 @@ defmodule OtpRailsBeam.Queue.Worker do
       {:error, reason} ->
         {:failed,
          %{
-           exception_class: "OtpRailsBeam.Queue.HandlerError",
+           exception_class: "OdoshiBeam.Queue.HandlerError",
            message: "handler #{inspect(module)} returned {:error, #{inspect(reason)}}",
            backtrace: []
          }}
@@ -173,7 +173,7 @@ defmodule OtpRailsBeam.Queue.Worker do
       other ->
         {:failed,
          %{
-           exception_class: "OtpRailsBeam.Queue.HandlerError",
+           exception_class: "OdoshiBeam.Queue.HandlerError",
            message:
              "handler #{inspect(module)} returned #{inspect(other)} " <>
                "(expected :ok or {:error, term})",
@@ -192,7 +192,7 @@ defmodule OtpRailsBeam.Queue.Worker do
     kind, reason ->
       {:failed,
        %{
-         exception_class: "OtpRailsBeam.Queue.HandlerExit",
+         exception_class: "OdoshiBeam.Queue.HandlerExit",
          message: Exception.format_banner(kind, reason),
          backtrace: backtrace(__STACKTRACE__)
        }}

@@ -1,21 +1,21 @@
-defmodule OtpRailsBeam.Telemetry do
+defmodule OdoshiBeam.Telemetry do
   @moduledoc """
   The DESIGN §6 event names, verbatim. This list is a published contract shared
-  with the Ruby `otp-rails` gem — never add, rename, or remove an event here
+  with the Ruby `odoshi` gem — never add, rename, or remove an event here
   without a DESIGN §6 edit on the Ruby side first.
   """
 
   @events [
-    [:otp_rails, :supervisor, :start],
-    [:otp_rails, :supervisor, :stop],
-    [:otp_rails, :supervisor, :escalate],
-    [:otp_rails, :child, :spawn],
-    [:otp_rails, :child, :healthy],
-    [:otp_rails, :child, :degraded],
-    [:otp_rails, :child, :exit],
-    [:otp_rails, :child, :restart],
-    [:otp_rails, :child, :drain],
-    [:otp_rails, :child, :kill]
+    [:odoshi, :supervisor, :start],
+    [:odoshi, :supervisor, :stop],
+    [:odoshi, :supervisor, :escalate],
+    [:odoshi, :child, :spawn],
+    [:odoshi, :child, :healthy],
+    [:odoshi, :child, :degraded],
+    [:odoshi, :child, :exit],
+    [:odoshi, :child, :restart],
+    [:odoshi, :child, :drain],
+    [:odoshi, :child, :kill]
   ]
 
   @doc "All contract event names (for `:telemetry.attach_many/4`)."

@@ -1,6 +1,6 @@
-defmodule OtpRailsBeam.Cable do
+defmodule OdoshiBeam.Cable do
   @moduledoc """
-  ActionCable-compatible realtime from the Solid Cable schema (otp-rails
+  ActionCable-compatible realtime from the Solid Cable schema (odoshi
   Phase 4 step 3, final): beam serves the ActionCable v1 JSON wire protocol
   over WebSockets, sourcing broadcasts from the SAME `solid_cable_messages`
   table the Rails app's Solid Cable adapter writes. Existing Turbo Streams /
@@ -9,7 +9,7 @@ defmodule OtpRailsBeam.Cable do
   (`Turbo::Broadcastable`, `ActionCable.server.broadcast`).
 
       {:ok, cable} =
-        OtpRailsBeam.Cable.start_link(
+        OdoshiBeam.Cable.start_link(
           port: 28080,
           db: [
             hostname: "localhost",
@@ -17,7 +17,7 @@ defmodule OtpRailsBeam.Cable do
             password: "...",
             database: "app_production_cable"   # the cable database
           ],
-          secret_key_base: System.fetch_env!("OTP_RAILS_CABLE_SECRET")
+          secret_key_base: System.fetch_env!("ODOSHI_CABLE_SECRET")
         )
 
   Point clients at `ws://host:28080/cable`.
@@ -32,8 +32,8 @@ defmodule OtpRailsBeam.Cable do
   * `:secret_key_base` — the Rails app's `secret_key_base`; the Turbo
     verifier key is derived from it exactly like
     `Rails.application.key_generator` does (see
-    `OtpRailsBeam.Cable.SignedStreamName`). Defaults to the
-    `OTP_RAILS_CABLE_SECRET` env var, then `SECRET_KEY_BASE`. Turbo keys
+    `OdoshiBeam.Cable.SignedStreamName`). Defaults to the
+    `ODOSHI_CABLE_SECRET` env var, then `SECRET_KEY_BASE`. Turbo keys
     off `secret_key_base` (not a cable-specific secret), so sharing
     `SECRET_KEY_BASE` with beam is what makes Rails-signed stream names
     verify here.
@@ -55,7 +55,7 @@ defmodule OtpRailsBeam.Cable do
     (`ActionCable::Server::Connections::BEAT_INTERVAL`). Change only for
     tests; real clients time out against unexpected cadences.
   * `:pool_size` — Postgrex pool size, default 2.
-  * `:name` — supervisor name, default `OtpRailsBeam.Cable`.
+  * `:name` — supervisor name, default `OdoshiBeam.Cable`.
 
   ## Auth boundary (v1)
 
@@ -83,15 +83,15 @@ defmodule OtpRailsBeam.Cable do
 
   Beam-local events (the §6 supervision contract is frozen and untouched):
 
-      [:otp_rails_beam, :cable, :connect]    %{system_time}  %{}
-      [:otp_rails_beam, :cable, :subscribe]  %{system_time}  %{identifier, streams}
-      [:otp_rails_beam, :cable, :reject]     %{system_time}  %{identifier, reason}
-      [:otp_rails_beam, :cable, :broadcast]  %{subscribers}  %{channel, message_id}
+      [:odoshi_beam, :cable, :connect]    %{system_time}  %{}
+      [:odoshi_beam, :cable, :subscribe]  %{system_time}  %{identifier, streams}
+      [:odoshi_beam, :cable, :reject]     %{system_time}  %{identifier, reason}
+      [:odoshi_beam, :cable, :broadcast]  %{subscribers}  %{channel, message_id}
   """
 
   use Supervisor
 
-  alias OtpRailsBeam.Cable.SignedStreamName
+  alias OdoshiBeam.Cable.SignedStreamName
 
   def start_link(opts) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -118,7 +118,7 @@ defmodule OtpRailsBeam.Cable do
     listener_spec = %{
       id: :listener,
       start:
-        {OtpRailsBeam.Cable.Listener, :start_link,
+        {OdoshiBeam.Cable.Listener, :start_link,
          [
            [
              name: listener_name,
@@ -132,7 +132,7 @@ defmodule OtpRailsBeam.Cable do
       Supervisor.child_spec(
         {Bandit,
          plug:
-           {OtpRailsBeam.Cable.Endpoint,
+           {OdoshiBeam.Cable.Endpoint,
             [
               listener: listener_name,
               verifier_key: verifier_key,
@@ -175,15 +175,15 @@ defmodule OtpRailsBeam.Cable do
         key
 
       secret =
-          Keyword.get(opts, :secret_key_base) || System.get_env("OTP_RAILS_CABLE_SECRET") ||
+          Keyword.get(opts, :secret_key_base) || System.get_env("ODOSHI_CABLE_SECRET") ||
             System.get_env("SECRET_KEY_BASE") ->
         SignedStreamName.derive_key(secret, Keyword.get(opts, :key_digest, :sha256))
 
       true ->
         raise ArgumentError,
-              "OtpRailsBeam.Cable needs the Rails secret to verify Turbo signed stream names: " <>
+              "OdoshiBeam.Cable needs the Rails secret to verify Turbo signed stream names: " <>
                 "pass :secret_key_base (or :signed_stream_verifier_key), or set " <>
-                "OTP_RAILS_CABLE_SECRET / SECRET_KEY_BASE in the environment"
+                "ODOSHI_CABLE_SECRET / SECRET_KEY_BASE in the environment"
     end
   end
 

@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.SocketTest do
+defmodule OdoshiBeam.SocketTest do
   @moduledoc """
   Mirrors test/socket_test.rb in the Ruby gem — real processes, no mocks,
   generous timing:
@@ -15,7 +15,7 @@ defmodule OtpRailsBeam.SocketTest do
 
   import Bitwise
 
-  alias OtpRailsBeam.TestEvents
+  alias OdoshiBeam.TestEvents
 
   @moduletag capture_log: true
   @moduletag timeout: 60_000
@@ -49,7 +49,7 @@ defmodule OtpRailsBeam.SocketTest do
     assert (File.stat!(sock).mode &&& 0o777) == 0o600, "socket must be mode 0600"
     assert wait_until(fn -> spawns(agent) >= 1 end), "child should start"
 
-    assert wait_until(fn -> OtpRailsBeam.heartbeated?(sup, "hb") end),
+    assert wait_until(fn -> OdoshiBeam.heartbeated?(sup, "hb") end),
            "supervisor should have recorded a heartbeat"
 
     File.touch!(flag)
@@ -60,7 +60,7 @@ defmodule OtpRailsBeam.SocketTest do
     assert wait_until(fn -> spawns(agent) >= 2 end),
            "6 missed intervals should count as :dead and restart the child"
 
-    OtpRailsBeam.stop(sup)
+    OdoshiBeam.stop(sup)
   end
 
   test "heartbeats with a bad token are dropped", %{tmp_dir: dir, agent: agent} do
@@ -82,9 +82,9 @@ defmodule OtpRailsBeam.SocketTest do
     assert TestEvents.named(agent, :degraded, "hb") == [],
            "a dropped heartbeat must not produce degraded reports"
 
-    refute OtpRailsBeam.heartbeated?(sup, "hb"), "the heartbeat must not be recorded"
+    refute OdoshiBeam.heartbeated?(sup, "hb"), "the heartbeat must not be recorded"
 
-    OtpRailsBeam.stop(sup)
+    OdoshiBeam.stop(sup)
   end
 
   test "control restart replaces the child and a bad token is ignored", %{
@@ -111,14 +111,14 @@ defmodule OtpRailsBeam.SocketTest do
     :ok =
       :gen_tcp.send(
         conn,
-        Jason.encode!(%{cmd: "restart", id: "hb", token: OtpRailsBeam.token(sup)}) <> "\n"
+        Jason.encode!(%{cmd: "restart", id: "hb", token: OdoshiBeam.token(sup)}) <> "\n"
       )
 
     assert wait_until(fn -> spawns(agent) >= 2 end), "restart command should replace the child"
     assert TestEvents.named(agent, :drain, "hb") != [], "the old child should have been drained"
 
     :gen_tcp.close(conn)
-    OtpRailsBeam.stop(sup)
+    OdoshiBeam.stop(sup)
   end
 
   test "heartbeat lines longer than the socket buffer are not truncated", %{
@@ -141,7 +141,7 @@ defmodule OtpRailsBeam.SocketTest do
         id: "hb",
         state: "healthy",
         ts: System.os_time(:second),
-        token: OtpRailsBeam.token(sup),
+        token: OdoshiBeam.token(sup),
         meta: %{blob: String.duplicate("x", 63_000)}
       }) <> "\n"
 
@@ -149,11 +149,11 @@ defmodule OtpRailsBeam.SocketTest do
 
     :ok = :gen_tcp.send(conn, line)
 
-    assert wait_until(fn -> OtpRailsBeam.heartbeated?(sup, "hb") end),
+    assert wait_until(fn -> OdoshiBeam.heartbeated?(sup, "hb") end),
            "a large-but-legal heartbeat line must still be parsed and recorded"
 
     :gen_tcp.close(conn)
-    OtpRailsBeam.stop(sup)
+    OdoshiBeam.stop(sup)
   end
 
   test "lines longer than 64KiB are dropped and the connection resyncs", %{
@@ -168,7 +168,7 @@ defmodule OtpRailsBeam.SocketTest do
     {:ok, conn} =
       :gen_tcp.connect({:local, String.to_charlist(sock)}, 0, [:binary, active: false])
 
-    token = OtpRailsBeam.token(sup)
+    token = OdoshiBeam.token(sup)
 
     # Over the §5 cap even with a valid token: malformed, dropped.
     long =
@@ -184,7 +184,7 @@ defmodule OtpRailsBeam.SocketTest do
     :ok = :gen_tcp.send(conn, long)
     Process.sleep(300)
 
-    refute OtpRailsBeam.heartbeated?(sup, "hb"),
+    refute OdoshiBeam.heartbeated?(sup, "hb"),
            "an over-long line must be dropped, not truncated into a heartbeat"
 
     # The same connection must have resynced at the newline: a legal line
@@ -195,11 +195,11 @@ defmodule OtpRailsBeam.SocketTest do
 
     :ok = :gen_tcp.send(conn, ok_line)
 
-    assert wait_until(fn -> OtpRailsBeam.heartbeated?(sup, "hb") end),
+    assert wait_until(fn -> OdoshiBeam.heartbeated?(sup, "hb") end),
            "the connection must keep working after an over-long line"
 
     :gen_tcp.close(conn)
-    OtpRailsBeam.stop(sup)
+    OdoshiBeam.stop(sup)
   end
 
   test "non-string cmd/id/state lines are dropped; ghost ids never enter the table", %{
@@ -214,7 +214,7 @@ defmodule OtpRailsBeam.SocketTest do
     {:ok, conn} =
       :gen_tcp.connect({:local, String.to_charlist(sock)}, 0, [:binary, active: false])
 
-    token = OtpRailsBeam.token(sup)
+    token = OdoshiBeam.token(sup)
     ts = System.os_time(:second)
 
     # §5 hardening: token, cmd, id, and state must be JSON strings. A cmd
@@ -233,10 +233,10 @@ defmodule OtpRailsBeam.SocketTest do
     for msg <- bad_lines, do: :ok = :gen_tcp.send(conn, Jason.encode!(msg) <> "\n")
     Process.sleep(300)
 
-    refute OtpRailsBeam.heartbeated?(sup, "hb"),
+    refute OdoshiBeam.heartbeated?(sup, "hb"),
            "non-string cmd/id/state lines must be dropped, not recorded"
 
-    refute OtpRailsBeam.heartbeated?(sup, "ghost"),
+    refute OdoshiBeam.heartbeated?(sup, "ghost"),
            "heartbeats for unknown child ids must be dropped at intake"
 
     assert spawns(agent) == 1, "no dropped line may act as a control command"
@@ -248,11 +248,11 @@ defmodule OtpRailsBeam.SocketTest do
         Jason.encode!(%{id: "hb", state: "healthy", ts: ts, token: token}) <> "\n"
       )
 
-    assert wait_until(fn -> OtpRailsBeam.heartbeated?(sup, "hb") end),
+    assert wait_until(fn -> OdoshiBeam.heartbeated?(sup, "hb") end),
            "a valid line after dropped ones must still be dispatched"
 
     :gen_tcp.close(conn)
-    OtpRailsBeam.stop(sup)
+    OdoshiBeam.stop(sup)
   end
 
   test "killing the child's OS process triggers a restart", %{tmp_dir: dir, agent: agent} do
@@ -261,7 +261,7 @@ defmodule OtpRailsBeam.SocketTest do
     {:ok, sup} = start_sup(sock, ["sleep", "30"])
     assert wait_until(fn -> spawns(agent) >= 1 end), "child should start"
 
-    pid1 = OtpRailsBeam.child_os_pid(sup, "hb")
+    pid1 = OdoshiBeam.child_os_pid(sup, "hb")
     assert is_integer(pid1)
 
     {_out, 0} = System.cmd("kill", ["-KILL", Integer.to_string(pid1)])
@@ -273,16 +273,16 @@ defmodule OtpRailsBeam.SocketTest do
            "the crash respawn should emit child.restart"
 
     assert wait_until(fn ->
-             pid2 = OtpRailsBeam.child_os_pid(sup, "hb")
+             pid2 = OdoshiBeam.child_os_pid(sup, "hb")
              is_integer(pid2) and pid2 != pid1
            end),
            "the replacement child should have a fresh OS pid"
 
-    OtpRailsBeam.stop(sup)
+    OdoshiBeam.stop(sup)
   end
 
   defp start_sup(sock, cmd) do
-    OtpRailsBeam.start_link(
+    OdoshiBeam.start_link(
       socket_path: sock,
       strategy: :one_for_one,
       max_restarts: 20,

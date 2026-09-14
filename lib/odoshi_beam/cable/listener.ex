@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.Cable.Listener do
+defmodule OdoshiBeam.Cable.Listener do
   @moduledoc """
   Polls `solid_cable_messages` and fans rows out to subscribed sockets —
   the beam mirror of Solid Cable's `Listener` thread
@@ -54,7 +54,7 @@ defmodule OtpRailsBeam.Cable.Listener do
   The listener holds only soft state (subscriber map + baselines): when it
   crashes for a non-connection reason and restarts, sockets stay up (the
   supervisor is `:one_for_one`) and re-register themselves with the fresh
-  listener, taking new baselines — see `OtpRailsBeam.Cable.Socket`.
+  listener, taking new baselines — see `OdoshiBeam.Cable.Socket`.
   """
 
   use GenServer
@@ -116,7 +116,7 @@ defmodule OtpRailsBeam.Cable.Listener do
 
       {:error, err} ->
         Logger.warning(
-          "otp_rails_beam.cable: cursor init deferred, DB unavailable (will retry at poll time): #{Exception.message(err)}"
+          "odoshi_beam.cable: cursor init deferred, DB unavailable (will retry at poll time): #{Exception.message(err)}"
         )
 
         {:noreply, state}
@@ -197,9 +197,7 @@ defmodule OtpRailsBeam.Cable.Listener do
         {:noreply, state}
 
       {:error, err} ->
-        Logger.warning(
-          "otp_rails_beam.cable: poll failed (will retry): #{Exception.message(err)}"
-        )
+        Logger.warning("odoshi_beam.cable: poll failed (will retry): #{Exception.message(err)}")
 
         schedule_poll(state.interval * @db_backoff_multiplier)
         {:noreply, state}
@@ -341,7 +339,7 @@ defmodule OtpRailsBeam.Cable.Listener do
             end)
 
             :telemetry.execute(
-              [:otp_rails_beam, :cable, :broadcast],
+              [:odoshi_beam, :cable, :broadcast],
               %{subscribers: map_size(entry.subs)},
               %{channel: channel, message_id: id}
             )
@@ -350,7 +348,7 @@ defmodule OtpRailsBeam.Cable.Listener do
             # ActionCable's stream decoder would raise per delivery and drop
             # the message; same outcome, one log line.
             Logger.warning(
-              "otp_rails_beam.cable: undecodable solid_cable payload id=#{id}: #{inspect(reason)}"
+              "odoshi_beam.cable: undecodable solid_cable payload id=#{id}: #{inspect(reason)}"
             )
         end
 

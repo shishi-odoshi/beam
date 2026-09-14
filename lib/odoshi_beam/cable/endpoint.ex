@@ -1,8 +1,8 @@
-defmodule OtpRailsBeam.Cable.Endpoint do
+defmodule OdoshiBeam.Cable.Endpoint do
   @moduledoc """
   The HTTP entry point: upgrades requests at the configured mount path
   (`/cable` — `ActionCable::INTERNAL[:default_mount_path]`) to a
-  `OtpRailsBeam.Cable.Socket` WebSocket, negotiating the ActionCable
+  `OdoshiBeam.Cable.Socket` WebSocket, negotiating the ActionCable
   subprotocol.
 
   Negotiation mirrors what websocket-driver does for Action Cable: the
@@ -44,7 +44,7 @@ defmodule OtpRailsBeam.Cable.Endpoint do
         protocol -> put_resp_header(conn, "sec-websocket-protocol", protocol)
       end
 
-    WebSockAdapter.upgrade(conn, OtpRailsBeam.Cable.Socket, opts, timeout: :infinity)
+    WebSockAdapter.upgrade(conn, OdoshiBeam.Cable.Socket, opts, timeout: :infinity)
   rescue
     # Not a WebSocket upgrade request (missing/invalid upgrade headers):
     # Action Cable's respond_to_invalid_request is a 404.

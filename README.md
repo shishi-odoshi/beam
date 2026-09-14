@@ -1,22 +1,22 @@
-# otp_rails_beam
+# odoshi_beam
 
 An Elixir sidecar supervisor for Rails (or arbitrary) OS processes — the
-`beam` repo from the [otp-rails](https://github.com/shishi-odoshi) project
+`beam` repo from the [odoshi](https://github.com/shishi-odoshi) project
 (DESIGN §2). It supervises external commands through native OTP supervision
 (each child is a GenServer owning a Port), consumes the DESIGN §5 health
 protocol over a Unix socket, and emits the DESIGN §6 telemetry events.
 
 It depends only on the §5/§6 protocols and the DB schema — never on the Ruby
 gem's code. Phase 4 step 1 is the ports-based supervision below; step 2 is
-the [shared Solid Queue worker](#shared-job-queue-otprailsbeamqueue); step 3
-is the [ActionCable-compatible cable](#actioncable-compatible-cable-otprailsbeamcable).
+the [shared Solid Queue worker](#shared-job-queue-odoshibeamqueue); step 3
+is the [ActionCable-compatible cable](#actioncable-compatible-cable-odoshibeamcable).
 
 ## Usage
 
 ```elixir
 {:ok, sup} =
-  OtpRailsBeam.start_link(
-    socket_path: "tmp/otp-rails.sock",
+  OdoshiBeam.start_link(
+    socket_path: "tmp/odoshi.sock",
     strategy: :one_for_one,          # or :rest_for_one
     max_restarts: 5,                 # native OTP restart intensity
     max_seconds: 60,
@@ -34,26 +34,26 @@ Child spec fields: `id` (string), `cmd` (argv list), `restart`
 plain OTP — exceeding `max_restarts`/`max_seconds` collapses the tree
 (exit reason `:shutdown`), leaving the platform as the final supervisor.
 
-Children inherit `OTP_RAILS_SOCK` and `OTP_RAILS_TOKEN` in their environment.
+Children inherit `ODOSHI_SOCK` and `ODOSHI_TOKEN` in their environment.
 A child that heartbeats is judged by its heartbeats; one that never does is
 judged by OS process aliveness (the Port reports its death immediately).
 
 ## Contract
 
-The wire protocol is frozen (otp-rails DESIGN §5/§9, hard rule 4): one JSON
+The wire protocol is frozen (odoshi DESIGN §5/§9, hard rule 4): one JSON
 object per line over a Unix socket, mode 0600, per-boot token. No MessagePack,
 no length prefixes, no protocol versions, no acks, no replies — ever.
 
 Heartbeat (child → supervisor):
 
 ```json
-{"id":"jobs","state":"healthy","ts":1757700000,"token":"<OTP_RAILS_TOKEN>","meta":{}}
+{"id":"jobs","state":"healthy","ts":1757700000,"token":"<ODOSHI_TOKEN>","meta":{}}
 ```
 
 Control (anything holding the token → supervisor):
 
 ```json
-{"cmd":"restart","id":"jobs","token":"<OTP_RAILS_TOKEN>"}
+{"cmd":"restart","id":"jobs","token":"<ODOSHI_TOKEN>"}
 ```
 
 Rules, matching the Ruby reference implementation exactly:
@@ -82,27 +82,27 @@ Rules, matching the Ruby reference implementation exactly:
 
 ## Telemetry
 
-The §6 names, verbatim (see `OtpRailsBeam.Telemetry.events/0`):
+The §6 names, verbatim (see `OdoshiBeam.Telemetry.events/0`):
 
 ```
-[:otp_rails, :supervisor, :start]
-[:otp_rails, :supervisor, :stop]
-[:otp_rails, :supervisor, :escalate]       # intensity exceeded
-[:otp_rails, :child, :spawn]
-[:otp_rails, :child, :healthy]
-[:otp_rails, :child, :degraded]
-[:otp_rails, :child, :exit]                # measurements: {exit_code, uptime_ms}
-[:otp_rails, :child, :restart]             # metadata:     {attempt, backoff_ms, strategy}
-[:otp_rails, :child, :drain]
-[:otp_rails, :child, :kill]                # drain timed out
+[:odoshi, :supervisor, :start]
+[:odoshi, :supervisor, :stop]
+[:odoshi, :supervisor, :escalate]       # intensity exceeded
+[:odoshi, :child, :spawn]
+[:odoshi, :child, :healthy]
+[:odoshi, :child, :degraded]
+[:odoshi, :child, :exit]                # measurements: {exit_code, uptime_ms}
+[:odoshi, :child, :restart]             # metadata:     {attempt, backoff_ms, strategy}
+[:odoshi, :child, :drain]
+[:odoshi, :child, :kill]                # drain timed out
 ```
 
 Native OTP restarts immediately, so `backoff_ms` is always 0 here. Native
 supervisors expose no hook at the instant intensity is exceeded, so
 `:escalate` is emitted by a monitor when the tree exits with reason
-`:shutdown` (a clean `OtpRailsBeam.stop/1` emits only `:stop`).
+`:shutdown` (a clean `OdoshiBeam.stop/1` emits only `:stop`).
 
-## Shared job queue (`OtpRailsBeam.Queue`)
+## Shared job queue (`OdoshiBeam.Queue`)
 
 Phase 4 step 2: beam as an alternate job runner, consuming the SAME Solid
 Queue Postgres schema the Rails app writes (decision: Solid Queue schema, not
@@ -113,7 +113,7 @@ supervisor run concurrently against the same tables.
 
 ```elixir
 defmodule MyApp.HardJob do
-  @behaviour OtpRailsBeam.Queue.Handler
+  @behaviour OdoshiBeam.Queue.Handler
 
   @impl true
   def perform([user_id, options]) do
@@ -123,7 +123,7 @@ defmodule MyApp.HardJob do
 end
 
 {:ok, queue} =
-  OtpRailsBeam.Queue.start_link(
+  OdoshiBeam.Queue.start_link(
     db: [hostname: "localhost", database: "app_production", username: "app", password: "..."],
     queues: ["elixir"],                        # exact names only, no wildcards
     handlers: %{"HardJob" => MyApp.HardJob}    # ActiveJob class_name => module
@@ -159,7 +159,7 @@ the worker is a BEAM process — with ONE configuration exception, below.
 ### Mirrored Solid Queue semantics
 
 The solid_queue gem (1.7.x) is the schema and semantics authority; the SQL in
-`OtpRailsBeam.Queue.Store` mirrors the Ruby worker exactly:
+`OdoshiBeam.Queue.Store` mirrors the Ruby worker exactly:
 
 - **Claiming** (`ReadyExecution.claim`): per queue in configured order, minus
   paused queues (`solid_queue_pauses`), `SELECT … ORDER BY priority ASC,
@@ -213,12 +213,12 @@ The solid_queue gem (1.7.x) is the schema and semantics authority; the SQL in
 Beam-local events (the §6 supervision contract is frozen and untouched):
 
 ```
-[:otp_rails_beam, :job, :start]     %{system_time}    %{job_id, active_job_id, class_name, queue_name}
-[:otp_rails_beam, :job, :finish]    %{duration_ms}    same metadata
-[:otp_rails_beam, :job, :failure]   %{duration_ms}    metadata + %{error: %{exception_class, message, backtrace}}
+[:odoshi_beam, :job, :start]     %{system_time}    %{job_id, active_job_id, class_name, queue_name}
+[:odoshi_beam, :job, :finish]    %{duration_ms}    same metadata
+[:odoshi_beam, :job, :failure]   %{duration_ms}    metadata + %{error: %{exception_class, message, backtrace}}
 ```
 
-## ActionCable-compatible cable (`OtpRailsBeam.Cable`)
+## ActionCable-compatible cable (`OdoshiBeam.Cable`)
 
 Phase 4 step 3 (decision log 2026-09-13): beam's realtime layer is
 ACTIONCABLE-COMPATIBLE — it serves the ActionCable v1 JSON wire protocol
@@ -231,10 +231,10 @@ channel semantics are explicitly deferred.
 
 ```elixir
 {:ok, cable} =
-  OtpRailsBeam.Cable.start_link(
+  OdoshiBeam.Cable.start_link(
     port: 28080,
     db: [hostname: "localhost", database: "app_production_cable", username: "app", password: "..."],
-    secret_key_base: System.fetch_env!("OTP_RAILS_CABLE_SECRET")
+    secret_key_base: System.fetch_env!("ODOSHI_CABLE_SECRET")
   )
 ```
 
@@ -273,7 +273,7 @@ A subscription is accepted iff:
   `"turbo/signed_stream_verifier_key"`, 1000 iterations, 64 bytes), then
   checks the `base64(JSON)--HMAC-SHA256-hexdigest` signature
   (`ActiveSupport::MessageVerifier`, `digest: "SHA256", serializer: JSON`).
-  The secret comes from `:secret_key_base` /`OTP_RAILS_CABLE_SECRET` /
+  The secret comes from `:secret_key_base` /`ODOSHI_CABLE_SECRET` /
   `SECRET_KEY_BASE` — Turbo keys off `secret_key_base` itself, so sharing
   it is what makes Rails-signed stream names verify in beam. Apps that set
   `config.turbo.signed_stream_verifier_key` pass it via
@@ -331,10 +331,10 @@ Later) and the client's connection monitor retries with backoff.
 Beam-local events (the §6 supervision contract is frozen and untouched):
 
 ```
-[:otp_rails_beam, :cable, :connect]    %{system_time}  %{}
-[:otp_rails_beam, :cable, :subscribe]  %{system_time}  %{identifier, streams}
-[:otp_rails_beam, :cable, :reject]     %{system_time}  %{identifier, reason}
-[:otp_rails_beam, :cable, :broadcast]  %{subscribers}  %{channel, message_id}
+[:odoshi_beam, :cable, :connect]    %{system_time}  %{}
+[:odoshi_beam, :cable, :subscribe]  %{system_time}  %{identifier, streams}
+[:odoshi_beam, :cable, :reject]     %{system_time}  %{identifier, reason}
+[:odoshi_beam, :cable, :broadcast]  %{subscribers}  %{channel, message_id}
 ```
 
 ## Dependencies
@@ -396,15 +396,15 @@ recovery.
 processes, in both directions:
 
 - this supervisor supervising RUBY children that heartbeat with the real
-  `OtpRails::Heartbeat` helper from the published gem (plus a Ruby control
+  `Odoshi::Heartbeat` helper from the published gem (plus a Ruby control
   client sending `{"cmd":"restart"}`);
-- the RUBY supervisor (`otp-rails run`, unmodified) supervising an ELIXIR
+- the RUBY supervisor (`odoshi run`, unmodified) supervising an ELIXIR
   stdlib heartbeater, asserted through its logger telemetry.
 
 They need `ruby` and the gem on PATH and are excluded from plain `mix test`:
 
 ```
-gem install otp-rails
+gem install odoshi
 mix test --only contract      # just the interop suite
 mix test --include contract   # everything
 ```
@@ -431,8 +431,8 @@ supervisor's `SolidQueue::Process.prune` maintenance call. Covered:
 They need docker Postgres and the fixture bundle:
 
 ```
-docker run -d --name otp-rails-beam-queue-pg \
-  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=otp_rails_beam_queue_test \
+docker run -d --name odoshi-beam-queue-pg \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=odoshi_beam_queue_test \
   -p 55433:5432 postgres:16
 (cd test/fixtures/solid_queue && bundle install)
 mix test --only queue
@@ -452,7 +452,7 @@ gem's own cable schema, signs stream names through
 derives, and broadcasts through Action Cable's `server.broadcast` → Solid
 Cable pubsub adapter. The Elixir side is a hand-rolled RFC 6455 test client
 (`test/support/cable_ws_client.ex`) speaking to a real
-`OtpRailsBeam.Cable`. Covered:
+`OdoshiBeam.Cable`. Covered:
 
 - welcome frame + `actioncable-v1-json` subprotocol negotiation (and the
   no-subprotocol case);
@@ -469,7 +469,7 @@ Cable pubsub adapter. The Elixir side is a hand-rolled RFC 6455 test client
 Pure-Elixir unit tests (`test/cable/signed_stream_name_test.exs`, no tag)
 pin the verifier and `channel_hash` against Ruby-produced vectors in the
 default suite. The interop suite needs the same docker Postgres as the
-queue suite (it creates its own `otp_rails_beam_cable_test` database) plus
+queue suite (it creates its own `odoshi_beam_cable_test` database) plus
 the fixture bundle:
 
 ```
@@ -484,7 +484,7 @@ Override connection settings with `SOLID_CABLE_PG_HOST` / `_PORT` / `_USER`
 
 GitHub Actions on `ubuntu-latest` via `erlef/setup-beam`
 (`.github/workflows/ci.yml`). Four jobs: `test` (pure Elixir), `contract`
-(adds `ruby/setup-ruby` + the otp-rails gem), `queue` (adds a `postgres:16`
+(adds `ruby/setup-ruby` + the odoshi gem), `queue` (adds a `postgres:16`
 service + the solid_queue fixture bundle), and `cable` (postgres service +
 the solid_cable fixture bundle) — kept separate so a contract, queue, or
 cable failure is immediately distinguishable from an Elixir regression.

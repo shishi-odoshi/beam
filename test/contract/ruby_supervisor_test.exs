@@ -1,14 +1,14 @@
-defmodule OtpRailsBeam.Contract.RubySupervisorTest do
+defmodule OdoshiBeam.Contract.RubySupervisorTest do
   @moduledoc """
   Cross-implementation contract tests, direction 2: the RUBY supervisor
-  (`otp-rails run` from the published gem, unmodified) supervising an ELIXIR
+  (`odoshi run` from the published gem, unmodified) supervising an ELIXIR
   child that heartbeats §5 NDJSON with nothing but the Elixir stdlib
   (`test/fixtures/heartbeater.exs` — the same fixture the pure-Elixir suite
   uses against the beam supervisor).
 
   The Ruby supervisor is driven as a subprocess via a temp
   `config/supervisor.rb`; assertions read its default logger telemetry
-  (`[otp-rails] otp_rails.child.* ...` lines on stderr):
+  (`[odoshi] odoshi.child.* ...` lines on stderr):
 
   * `child.spawn` — the Elixir child started;
   * `child.degraded` after the fixture goes silent — proves the supervisor
@@ -39,8 +39,8 @@ defmodule OtpRailsBeam.Contract.RubySupervisorTest do
   test "elixir child under the ruby supervisor: active, degraded on silence, restarted",
        %{tmp_dir: dir} do
     exe =
-      System.find_executable("otp-rails") ||
-        raise "contract tests need the otp-rails gem's CLI on PATH (gem install otp-rails)"
+      System.find_executable("odoshi") ||
+        raise "contract tests need the odoshi gem's CLI on PATH (gem install odoshi)"
 
     flag = Path.join(dir, "stop.flag")
     sock = Path.join(dir, "rs.sock")
@@ -84,15 +84,15 @@ defmodule OtpRailsBeam.Contract.RubySupervisorTest do
     Process.sleep(1_500)
     File.touch!(flag)
 
-    {:ok, buf} = await(port, buf, fn buf -> buf =~ "otp_rails.child.degraded" end)
+    {:ok, buf} = await(port, buf, fn buf -> buf =~ "odoshi.child.degraded" end)
 
-    assert buf =~ "otp_rails.child.degraded",
+    assert buf =~ "odoshi.child.degraded",
            "silence after active §5 heartbeats should age into :degraded\n#{buf}"
 
     {:ok, buf} = await(port, buf, fn buf -> spawns(buf) >= 2 end)
     assert spawns(buf) >= 2, "6 missed intervals should get the elixir child restarted\n#{buf}"
 
-    assert buf =~ "otp_rails.child.restart",
+    assert buf =~ "odoshi.child.restart",
            "the replacement should be a strategy restart, not a silent respawn\n#{buf}"
 
     # Clean shutdown: TERM is trapped by the CLI and drains the tree.
@@ -102,7 +102,7 @@ defmodule OtpRailsBeam.Contract.RubySupervisorTest do
   end
 
   defp spawns(buf) do
-    buf |> String.split("otp_rails.child.spawn") |> length() |> Kernel.-(1)
+    buf |> String.split("odoshi.child.spawn") |> length() |> Kernel.-(1)
   end
 
   defp await(port, buf, pred, timeout \\ @wait_ms) do

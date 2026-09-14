@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.CableWsClient do
+defmodule OdoshiBeam.CableWsClient do
   @moduledoc """
   A minimal RFC 6455 WebSocket client for the cable interop tests — plain
   `:gen_tcp`, no test dependency, just enough protocol for what the suite

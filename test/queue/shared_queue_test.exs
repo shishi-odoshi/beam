@@ -1,16 +1,16 @@
-defmodule OtpRailsBeam.Queue.SharedQueueTest do
+defmodule OdoshiBeam.Queue.SharedQueueTest do
   @moduledoc """
   Interop acceptance suite for the shared Solid Queue (Phase 4 step 2): the
   Ruby side is the REAL solid_queue gem (test/fixtures/solid_queue/), the
-  Elixir side is `OtpRailsBeam.Queue`, and both run against the same Postgres
+  Elixir side is `OdoshiBeam.Queue`, and both run against the same Postgres
   schema. Requires the docker Postgres from the README (`:queue` tag).
   """
 
   use ExUnit.Case, async: false
 
-  import OtpRailsBeam.QueueHelpers
+  import OdoshiBeam.QueueHelpers
 
-  alias OtpRailsBeam.QueueHandlers
+  alias OdoshiBeam.QueueHandlers
 
   @moduletag :queue
   @moduletag timeout: 120_000
@@ -35,7 +35,7 @@ defmodule OtpRailsBeam.Queue.SharedQueueTest do
       heartbeat_interval_ms: 200
     ]
 
-    pid = start_supervised!({OtpRailsBeam.Queue, Keyword.merge(defaults, opts)}, id: name)
+    pid = start_supervised!({OdoshiBeam.Queue, Keyword.merge(defaults, opts)}, id: name)
     {name, pid}
   end
 
@@ -95,8 +95,8 @@ defmodule OtpRailsBeam.Queue.SharedQueueTest do
     assert one!(conn, "SELECT count(*) FROM solid_queue_processes") == 1
 
     # beam-local telemetry fired for each executed job; §6 names never used.
-    assert_receive {:job_event, [:otp_rails_beam, :job, :start], _, %{class_name: "MarkerJob"}}
-    assert_receive {:job_event, [:otp_rails_beam, :job, :finish], %{duration_ms: _}, _}
+    assert_receive {:job_event, [:odoshi_beam, :job, :start], _, %{class_name: "MarkerJob"}}
+    assert_receive {:job_event, [:odoshi_beam, :job, :finish], %{duration_ms: _}, _}
 
     # Clean shutdown deregisters (row deleted), like SolidQueue::Process#deregister.
     :ok = stop_supervised(name)
@@ -191,7 +191,7 @@ defmodule OtpRailsBeam.Queue.SharedQueueTest do
 
     [[error_json]] = rows!(conn, "SELECT error FROM solid_queue_failed_executions")
     error = Jason.decode!(error_json)
-    assert error["exception_class"] == "OtpRailsBeam.Queue.UnknownJobClassError"
+    assert error["exception_class"] == "OdoshiBeam.Queue.UnknownJobClassError"
     assert error["message"] =~ ~s(no Elixir handler registered for ActiveJob class "FailingJob")
   end
 
@@ -202,9 +202,9 @@ defmodule OtpRailsBeam.Queue.SharedQueueTest do
     :telemetry.attach_many(
       handler_id,
       [
-        [:otp_rails_beam, :job, :start],
-        [:otp_rails_beam, :job, :finish],
-        [:otp_rails_beam, :job, :failure]
+        [:odoshi_beam, :job, :start],
+        [:odoshi_beam, :job, :finish],
+        [:odoshi_beam, :job, :failure]
       ],
       fn event, measurements, metadata, _ ->
         send(test_pid, {:job_event, event, measurements, metadata})

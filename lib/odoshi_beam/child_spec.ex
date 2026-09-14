@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.ChildSpec do
+defmodule OdoshiBeam.ChildSpec do
   @moduledoc """
   DESIGN §3.2, trimmed to Phase 4 step 1: a child is an external OS command.
 

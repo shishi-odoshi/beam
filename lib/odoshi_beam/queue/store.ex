@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.Queue.Store do
+defmodule OdoshiBeam.Queue.Store do
   @moduledoc """
   Hand-rolled SQL mirror of Solid Queue's worker-side semantics (gem version
   1.7.x is the authority — `app/models/solid_queue/{ready_execution,

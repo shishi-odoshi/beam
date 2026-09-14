@@ -7,7 +7,7 @@
 # and healthy. Mirrors test/fixtures/bad_heartbeater.rb in the Ruby gem.
 
 [marker | _] = System.argv()
-sock_path = System.fetch_env!("OTP_RAILS_SOCK")
+sock_path = System.fetch_env!("ODOSHI_SOCK")
 
 connect = fn connect, attempts ->
   case :gen_tcp.connect({:local, String.to_charlist(sock_path)}, 0, [:binary, active: false]) do

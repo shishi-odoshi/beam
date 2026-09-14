@@ -1,9 +1,9 @@
-defmodule OtpRailsBeam.Cable.CableInteropTest do
+defmodule OdoshiBeam.Cable.CableInteropTest do
   @moduledoc """
   Interop acceptance suite for the ActionCable-compatible cable (Phase 4
   step 3): the Ruby side is the REAL solid_cable + actioncable + turbo-rails
   stack (test/fixtures/solid_cable/) signing stream names and broadcasting
-  through Solid Cable's pubsub, the Elixir side is `OtpRailsBeam.Cable`
+  through Solid Cable's pubsub, the Elixir side is `OdoshiBeam.Cable`
   serving the ActionCable v1 JSON protocol, and both meet in one Postgres
   `solid_cable_messages` table. Requires the docker Postgres from the
   README (`:cable` tag).
@@ -11,9 +11,9 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
 
   use ExUnit.Case, async: false
 
-  import OtpRailsBeam.CableHelpers
+  import OdoshiBeam.CableHelpers
 
-  alias OtpRailsBeam.CableWsClient, as: Client
+  alias OdoshiBeam.CableWsClient, as: Client
 
   @moduletag :cable
   @moduletag timeout: 120_000
@@ -35,7 +35,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
       polling_interval_ms: 50
     ]
 
-    start_supervised!({OtpRailsBeam.Cable, Keyword.merge(defaults, opts)}, id: name)
+    start_supervised!({OdoshiBeam.Cable, Keyword.merge(defaults, opts)}, id: name)
     {port, name}
   end
 
@@ -131,7 +131,7 @@ defmodule OtpRailsBeam.Cable.CableInteropTest do
 
     :telemetry.attach(
       "cable-reject-#{inspect(test_pid)}",
-      [:otp_rails_beam, :cable, :reject],
+      [:odoshi_beam, :cable, :reject],
       fn _event, _measurements, metadata, _config -> send(test_pid, {:reject, metadata}) end,
       nil
     )

@@ -1,4 +1,4 @@
-defmodule OtpRailsBeam.Queue.ActiveJob do
+defmodule OdoshiBeam.Queue.ActiveJob do
   @moduledoc """
   Decodes the standard ActiveJob JSON envelope that Solid Queue stores in
   `solid_queue_jobs.arguments`:
