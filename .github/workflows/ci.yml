@@ -34,7 +34,13 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
-      - run: gem install odoshi --version 0.3.0
+      # Float to the latest published odoshi rather than pinning. The whole
+      # point of this job is to prove the two implementations still agree on
+      # the frozen §5/§6 contract; a pin means the evidence is gathered
+      # against a gem nobody runs (it sat on 0.3.0 while odoshi shipped
+      # 0.4.x). If an odoshi release breaks this job, that IS the finding.
+      - run: gem install odoshi
+      - run: gem list odoshi # recorded in the log: which version proved the contract
       - run: mix deps.get
       - run: mix test --only contract
 
